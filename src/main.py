@@ -79,7 +79,7 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
   print("Eval at step {0}. valid_batch_size={1}".format(step, valid_batch_size))
 
   model.eval()
-  data.reset_valid()
+  #data.reset_valid()
   valid_words = 0
   valid_loss = 0
   valid_acc = 0
@@ -99,7 +99,7 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
     gc.collect()
 
     # next batch
-    x_valid, x_mask, x_count, x_len, y_valid, y_mask, y_count, y_len, batch_size, end_of_epoch = data.next_valid(valid_batch_size=valid_batch_size)
+    x_valid, x_mask, x_count, x_len, y_valid, y_mask, y_count, y_len, batch_size, end_of_epoch = data.next_dev(dev_batch_size=valid_batch_size)
     #print(x_valid)
     #print(x_mask)
     #print(y_valid)
@@ -107,7 +107,7 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
     # do this since you shift y_valid[:, 1:] and y_valid[:, :-1]
     y_count -= batch_size
     # word count
-    alid_words += y_count
+    valid_words += y_count
 
     logits = model.forward(
       x_valid, x_mask, x_len,
