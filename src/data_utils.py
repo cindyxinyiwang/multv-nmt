@@ -120,17 +120,17 @@ class DataUtil(object):
     y_dev = self.dev_y[start_index:end_index]
     x_dev, y_dev = self.sort_by_xlen(x_dev, y_dev)
 
-    x_dev, x_mask, x_count, x_len = self._pad(x_dev, self.pad_id)
-    y_dev, y_mask, y_count, y_len = self._pad(y_dev, self.pad_id)
+    x_dev, x_mask, x_count, x_len = self._pad(x_dev, self.hparams.pad_id)
+    y_dev, y_mask, y_count, y_len = self._pad(y_dev, self.hparams.pad_id)
 
     if end_index >= self.dev_size:
       eop = True
-      self.valid_index = 0
+      self.dev_index = 0
     else:
       eop = False
-      self.valid_index += batch_size
+      self.dev_index += batch_size
 
-    return x_valid, x_mask, x_count, x_len, y_valid, y_mask, y_count, y_len, batch_size, eop
+    return x_dev, x_mask, x_count, x_len, y_dev, y_mask, y_count, y_len, batch_size, eop
 
   def next_test(self, test_batch_size=10):
     start_index = self.test_index
@@ -219,7 +219,7 @@ class DataUtil(object):
       line_count += 1
       if line_count % 10000 == 0:
         print("processed {} lines".format(line_count))
-
+    print("src_unk={}, trg_unk={}".format(src_unk_count, trg_unk_count))
     assert len(src_data) == len(trg_data)
     return src_data, trg_data
 

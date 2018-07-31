@@ -9,5 +9,7 @@ python src/main.py \
 	--src_vocab_list vocab.ja,vocab.ja \
 	--trg_vocab_list vocab.en,vocab.en \
 	--batch_size 2 \
+	--valid_batch_size 2 \
 	--log_every 1 \
+	--eval_every 2 \
 	--n_train_steps 200
