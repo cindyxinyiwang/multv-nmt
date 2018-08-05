@@ -167,6 +167,8 @@ def train():
     print("load hparams..")
     hparams_file_name = os.path.join(args.output_dir, "hparams.pt")
     hparams = torch.load(hparams_file_name)
+    hparams.load_model = args.load_model
+    hparams.n_train_steps = args.n_train_steps
   else:
     hparams = HParams(
       decode=args.decode,
@@ -195,7 +197,8 @@ def train():
       n_heads=args.n_heads,
       d_k=args.d_k,
       d_v=args.d_v,
-      merge_bpe=args.merge_bpe
+      merge_bpe=args.merge_bpe,
+      load_model=args.load_model
     )
   data = DataUtil(hparams=hparams)
   # build or load model

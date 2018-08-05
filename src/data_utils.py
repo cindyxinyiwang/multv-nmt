@@ -46,16 +46,20 @@ class DataUtil(object):
         self.train_y.extend(train_y)
         i += 1
         self.train_size += len(train_x)
-      self.hparams.dev_src_file = os.path.join(self.hparams.data_path, self.hparams.dev_src_file)
-      self.hparams.dev_trg_file = os.path.join(self.hparams.data_path, self.hparams.dev_trg_file)
-      self.dev_x, self.dev_y = self._build_parallel(self.hparams.dev_src_file, self.hparams.dev_trg_file, 0)
+      if not self.hparams.load_model:
+        dev_src_file = os.path.join(self.hparams.data_path, self.hparams.dev_src_file)
+        dev_trg_file = os.path.join(self.hparams.data_path, self.hparams.dev_trg_file)
+      else:
+        dev_src_file = self.hparams.dev_src_file
+        dev_trg_file = self.hparams.dev_trg_file
+      self.dev_x, self.dev_y = self._build_parallel(dev_src_file, dev_trg_file, 0)
       self.dev_size = len(self.dev_x)
       self.reset_train()
       self.dev_index = 0
     else:
-      self.hparams.test_src_file = os.path.join(self.hparams.data_path, self.hparams.test_src_file)
-      self.hparams.test_trg_file = os.path.join(self.hparams.data_path, self.hparams.test_trg_file)
-      self.test_x, self.test_y = self._build_parallel(self.hparams.test_src_file, self.hparams.test_trg_file, 0)
+      test_src_file = os.path.join(self.hparams.data_path, self.hparams.test_src_file)
+      test_trg_file = os.path.join(self.hparams.data_path, self.hparams.test_trg_file)
+      self.test_x, self.test_y = self._build_parallel(test_src_file, test_trg_file, 0)
       self.test_size = len(self.test_x)
       self.test_index = 0
 
