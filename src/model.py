@@ -182,6 +182,8 @@ class Encoder(nn.Module):
                                  self.hparams.d_word_vec,
                                  padding_idx=hparams.pad_id)
 
+    if self.hparams.char_ngram_n > 0:
+      self.char_emb_proj = nn.Linear(self.hparams.src_char_vsize, self.hparams.d_word_vec)
     self.layer = nn.LSTM(self.hparams.d_word_vec, 
                          self.hparams.d_model, 
                          bidirectional=True, 
@@ -197,7 +199,7 @@ class Encoder(nn.Module):
       self.dropout = self.dropout.cuda()
       self.bridge = self.bridge.cuda()
 
-  def forward(self, x_train, x_len):
+  def forward(self, x_train, x_len, x_char_emb=None):
     """Performs a forward pass.
     Args:
       x_train: Torch Tensor of size [batch_size, max_len]
@@ -214,6 +216,9 @@ class Encoder(nn.Module):
     # [batch_size, max_len, d_word_vec]
     word_emb = self.word_emb(x_train)
     word_emb = self.dropout(word_emb)
+    if x_char_emb:
+      char_emb = torch.nn.functional.tanh(self.char_emb_proj(x_char_emb))
+      word_emb = word_emb + char_emb
     packed_word_emb = pack_padded_sequence(word_emb, x_len)
     enc_output, (ht, ct) = self.layer(packed_word_emb)
     enc_output, _ = pad_packed_sequence(enc_output,  padding_value=self.hparams.pad_id)
