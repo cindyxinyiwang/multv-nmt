@@ -72,6 +72,9 @@ parser.add_argument("--init_type", type=str, default="uniform", help="uniform|xa
 
 parser.add_argument("--share_emb_softmax", action="store_true", help="weight tieing")
 parser.add_argument("--reset_hparams", action="store_true", help="whether to reload the hparams")
+
+parser.add_argument("--char_ngram_n", type=int, default=0, help="use char_ngram embedding")
+parser.add_argument("--max_char_vocab_size", type=int, default=None, help="char vocab size")
 args = parser.parse_args()
 
 def eval(model, data, crit, step, hparams, eval_bleu=False,
@@ -198,7 +201,9 @@ def train():
       d_k=args.d_k,
       d_v=args.d_v,
       merge_bpe=args.merge_bpe,
-      load_model=args.load_model
+      load_model=args.load_model,
+      char_ngram_n=args.char_ngram_n,
+      max_char_vocab_size=args.max_char_vocab_size
     )
   data = DataUtil(hparams=hparams)
   # build or load model
