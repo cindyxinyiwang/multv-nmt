@@ -78,44 +78,60 @@ class DataUtil(object):
       else:
         dev_src_file = self.hparams.dev_src_file
         dev_trg_file = self.hparams.dev_trg_file
-      self.dev_x, self.dev_y, self.dev_x_char_kv, self.dev_y_char_kv = self._build_parallel(dev_src_file, dev_trg_file, 0)
+      self.dev_x, self.dev_y, self.dev_x_char_kv, self.dev_y_char_kv = self._build_parallel(dev_src_file, dev_trg_file, 0, is_train=False)
       self.dev_size = len(self.dev_x)
       self.reset_train()
       self.dev_index = 0
+      #self.dev_x_char, self.dev_y_char = self.get_trans_char(self.dev_x_char_kv), self.get_trans_char(self.dev_y_char_kv)
     else:
       test_src_file = os.path.join(self.hparams.data_path, self.hparams.test_src_file)
       test_trg_file = os.path.join(self.hparams.data_path, self.hparams.test_trg_file)
-      self.test_x, self.test_y, self.test_x_char_kv, self.test_y_char_kv = self._build_parallel(test_src_file, test_trg_file, 0)
+      self.test_x, self.test_y, self.test_x_char_kv, self.test_y_char_kv = self._build_parallel(test_src_file, test_trg_file, 0, is_train=False)
       self.test_size = len(self.test_x)
       self.test_index = 0
       if self.hparams.char_ngram_n > 0:
-        self.test_x_char = []
-        for kvs in self.test_x_char_kv:
-          key, val = [], []
-          sent_sparse = []
-          for i, kv in enumerate(kvs):
-            key.append(torch.LongTensor([[i for _ in range(len(kv.keys()))], list(kv.keys())]))
-            val.extend(list(kv.values()))
-          key = torch.cat(key, dim=1)
-          val = torch.FloatTensor(val)
-          sent_sparse = torch.sparse.FloatTensor(key, val, torch.Size([len(kvs), self.hparams.src_char_vsize]))
-          # (batch_size, max_len, char_dim)
-          self.test_x_char.append([sent_sparse])
-
-        self.test_y_char = []
-        for kvs in self.test_y_char_kv:
-          key, val = [], []
-          sent_sparse = []
-          for i, kv in enumerate(kvs):
-            key.append(torch.LongTensor([[i for _ in range(len(kv.keys()))], list(kv.keys())]))
-            val.extend(list(kv.values()))
-          key = torch.cat(key, dim=1)
-          val = torch.FloatTensor(val)
-          sent_sparse = torch.sparse.FloatTensor(key, val, torch.Size([len(kvs), self.hparams.trg_char_vsize]))
-          # (batch_size, max_len, char_dim)
-          self.test_y_char.append([sent_sparse])
+        self.test_x_char = self.get_trans_char(self.test_x_char_kv)
+        #for kvs in self.test_x_char_kv:
+        #  key, val = [], []
+        #  sent_sparse = []
+        #  for i, kv in enumerate(kvs):
+        #    key.append(torch.LongTensor([[i for _ in range(len(kv.keys()))], list(kv.keys())]))
+        #    val.extend(list(kv.values()))
+        #  key = torch.cat(key, dim=1)
+        #  val = torch.FloatTensor(val)
+        #  sent_sparse = torch.sparse.FloatTensor(key, val, torch.Size([len(kvs), self.hparams.src_char_vsize]))
+        #  # (batch_size, max_len, char_dim)
+        #  self.test_x_char.append([sent_sparse])
+        self.test_y_char = self.get_trans_char(self.test_y_char_kv)
+        #for kvs in self.test_y_char_kv:
+        #  key, val = [], []
+        #  sent_sparse = []
+        #  for i, kv in enumerate(kvs):
+        #    key.append(torch.LongTensor([[i for _ in range(len(kv.keys()))], list(kv.keys())]))
+        #    val.extend(list(kv.values()))
+        #  key = torch.cat(key, dim=1)
+        #  val = torch.FloatTensor(val)
+        #  sent_sparse = torch.sparse.FloatTensor(key, val, torch.Size([len(kvs), self.hparams.trg_char_vsize]))
+        #  # (batch_size, max_len, char_dim)
+        #  self.test_y_char.append([sent_sparse])
       else:
         self.test_x_char, self.test_y_char = None, None
+  
+  def get_trans_char(self, char_raw):
+    ret_char = []
+    if self.hparams.char_ngram_n > 0:
+      for kvs in char_raw:
+        key, val = [], []
+        sent_sparse = []
+        for i, kv in enumerate(kvs):
+          key.append(torch.LongTensor([[i for _ in range(len(kv.keys()))], list(kv.keys())]))
+          val.extend(list(kv.values()))
+        key = torch.cat(key, dim=1)
+        val = torch.FloatTensor(val)
+        sent_sparse = torch.sparse.FloatTensor(key, val, torch.Size([len(kvs), self.hparams.src_char_vsize]))
+        # (batch_size, max_len, char_dim)
+        ret_char.append([sent_sparse])
+    return ret_char
 
   def get_char_emb(self, word_idx, is_trg=True):
     if is_trg:
@@ -341,7 +357,7 @@ class DataUtil(object):
     return count
 
 
-  def _build_parallel(self, src_file_name, trg_file_name, i):
+  def _build_parallel(self, src_file_name, trg_file_name, i, is_train=True):
     print("loading parallel sentences from {} {} with vocab {}".format(src_file_name, trg_file_name, i))
     with open(src_file_name, 'r', encoding='utf-8') as f:
       src_lines = f.read().split('\n')
@@ -359,8 +375,8 @@ class DataUtil(object):
     for src_line, trg_line in zip(src_lines, trg_lines):
       src_tokens = src_line.split()
       trg_tokens = trg_line.split()
-      if not src_tokens or not trg_tokens: continue
-      if not self.hparams.decode and self.hparams.max_len and len(src_tokens) > self.hparams.max_len and len(trg_tokens) > self.hparams.max_len:
+      if is_train and not src_tokens or not trg_tokens: continue
+      if is_train and not self.hparams.decode and self.hparams.max_len and len(src_tokens) > self.hparams.max_len and len(trg_tokens) > self.hparams.max_len:
         continue
 
       src_indices, trg_indices = [self.hparams.bos_id], [self.hparams.bos_id] 
