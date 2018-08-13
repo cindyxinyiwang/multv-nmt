@@ -234,8 +234,10 @@ class Encoder(nn.Module):
         x_train_char[idx] = x_char_sent
       char_emb = torch.stack(x_train_char, dim=0).permute(1, 0, 2)
       if self.hparams.char_comb == 'add':
-        if self.hparams.char_temp:
+        if self.hparams.char_temp < 1:
           word_emb = word_emb * (1-self.hparams.char_temp) + char_emb * self.hparams.char_temp
+        elif self.hparams.char_temp > 1:
+          word_emb = word_emb + char_emb * self.hparams.char_temp
         else:
           word_emb = word_emb + char_emb
       elif self.hparams.char_comb == 'cat':
@@ -245,8 +247,10 @@ class Encoder(nn.Module):
       char_emb = self.char_emb(x_train_char.permute(1, 0, 2))
       char_emb = char_emb.sum(dim=2)
       if self.hparams.char_comb == 'add':
-        if self.hparams.char_temp:
+        if self.hparams.char_temp < 1:
           word_emb = word_emb * (1-self.hparams.char_temp) + char_emb * self.hparams.char_temp
+        elif self.hparams.char_temp > 1:
+          word_emb = word_emb + char_emb * self.hparams.char_temp
         else:
           word_emb = word_emb + char_emb
       elif self.hparams.char_comb == 'cat':
@@ -324,8 +328,10 @@ class Decoder(nn.Module):
         y_train_char[idx] = y_char_sent
       char_emb = torch.stack(y_train_char, dim=0)
       if self.hparams.char_comb == 'add':
-        if self.hparams.char_temp:
+        if self.hparams.char_temp < 1:
           trg_emb = trg_emb * (1-self.hparams.char_temp) + char_emb * self.hparams.char_temp
+        elif self.hparams.char_temp > 1:
+          trg_emb = trg_emb + char_emb * self.hparams.char_temp
         else:
           trg_emb = trg_emb + char_emb
       elif self.hparams.char_comb == 'cat':
@@ -335,8 +341,10 @@ class Decoder(nn.Module):
       char_emb = self.char_emb(y_train_char)
       char_emb = char_emb.sum(dim=2)[:,:-1,:]
       if self.hparams.char_comb == 'add':
-        if self.hparams.char_temp:
+        if self.hparams.char_temp < 1:
           trg_emb = trg_emb * (1-self.hparams.char_temp) + char_emb * self.hparams.char_temp
+        elif self.hparams_char_temp > 1:
+          trg_emb = trg_emb + char_emb * self.hparams.char_temp
         else:
           trg_emb = trg_emb + char_emb
       elif self.hparams.char_comb == 'cat':
@@ -367,8 +375,10 @@ class Decoder(nn.Module):
       if self.hparams.cuda: emb = emb.cuda()
       emb = torch.tanh(self.char_emb_proj(emb))
       if self.hparams.char_comb == 'add':
-        if self.hparams.char_temp:
+        if self.hparams.char_temp < 1:
           y_emb_tm1 = y_emb_tm1 * (1 - self.hparams.char_temp) + emb * self.hparams.char_temp
+        elif self.hparams.char_temp > 1:
+          y_emb_tm1 = y_emb_tm1 + emb * self.hparams.char_temp
         else:
           y_emb_tm1 = y_emb_tm1 + emb
       elif self.hparams.char_comb == 'cat':
@@ -378,7 +388,12 @@ class Decoder(nn.Module):
       char = data.get_char_emb(y_tm1.item())     
       emb = self.char_emb(char).sum(dim=1)
       if self.hparams.char_comb == 'add':
-        y_emb_tm1 = y_emb_tm1 + emb
+        if self.hparams.char_temp < 1:
+          y_emb_tm1 = y_emb_tm1 * (1 - self.hparams.char_temp) + emb * self.hparams.char_temp
+        elif self.hparams.char_temp > 1:
+          y_emb_tm1 = y_emb_tm1 + emb * self.hparams.char_temp
+        else:
+          y_emb_tm1 = y_emb_tm1 + emb
       elif self.hparams.char_comb == 'cat':
         y_emb_tm1 = torch.cat([y_emb_tm1, emb], dim=-1)
 
