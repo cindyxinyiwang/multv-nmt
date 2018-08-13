@@ -7,7 +7,7 @@ export PYTHONPATH="$(pwd)"
 export CUDA_VISIBLE_DEVICES="2"
 
 python3.6 src/main.py \
-  --output_dir="outputs_concat_exp1_v1/" \
+  --output_dir="outputs_concat_exp1_v4/" \
   --data_path data/aze+tur_eng/ \
   --train_src_file_list bi.piece.bi \
   --train_trg_file_list  bi.piece.eng \
@@ -15,7 +15,7 @@ python3.6 src/main.py \
   --dev_trg_file ted-dev.piece.eng \
   --src_vocab_list bi.piece.bi.vocab \
   --trg_vocab_list bi.piece.eng.vocab \
-  --d_word_vec=512 \
+  --d_word_vec=128 \
   --d_model=512 \
   --log_every=50 \
   --eval_every=1500 \
