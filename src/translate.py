@@ -53,6 +53,9 @@ else:
   model = torch.load(model_file_name)
 model.eval()
 
+hparams_file_name = os.path.join(args.model_dir, "hparams.pt")
+train_hparams = torch.load(hparams_file_name)
+
 out_file = os.path.join(args.model_dir, args.out_file)
 print("writing translation to " + out_file)
 hparams = TranslationHparams(
@@ -68,9 +71,23 @@ hparams = TranslationHparams(
   merge_bpe=args.merge_bpe,
   out_file=out_file,
   nbest=args.nbest,
-  decode=True
+  decode=True,
+  char_ngram_n=train_hparams.char_ngram_n,
+  max_char_vocab_size=train_hparams.max_char_vocab_size,
+  train_src_file_list=train_hparams.train_src_file_list,
+  train_trg_file_list=train_hparams.train_trg_file_list,
 )
- 
+if hasattr(train_hparams, 'src_char_vsize'):
+  hparams.src_char_vsize = train_hparams.src_char_vsize
+if hasattr(train_hparams, 'trg_char_vsize'):
+  hparams.trg_char_vsize = train_hparams.trg_char_vsize
+if hasattr(train_hparams, 'char_comb'):
+  hparams.char_comb = train_hparams.char_comb
+if hasattr(train_hparams, 'char_temp'):
+  model.hparams.char_temp = train_hparams.char_temp
+else:
+  model.hparams.char_temp = None
+
 #hparams.add_param("pad_id", model.hparams.pad_id)
 #hparams.add_param("bos_id", model.hparams.bos_id)
 #hparams.add_param("eos_id", model.hparams.eos_id)
@@ -78,6 +95,9 @@ hparams = TranslationHparams(
 model.hparams.cuda = hparams.cuda
 data = DataUtil(hparams=hparams, decode=True)
 filts = [model.hparams.pad_id, model.hparams.eos_id, model.hparams.bos_id]
+
+if not hasattr(model, 'data'):
+  model.data = data
 
 #hparams.add_param("filtered_tokens", set(filts))
 if args.debug:
@@ -97,17 +117,17 @@ else:
   y_test = None
 #print(x_test)
 hyps = model.translate(
-      x_test, beam_size=args.beam_size, max_len=args.max_len, poly_norm_m=args.poly_norm_m)
+      x_test, beam_size=args.beam_size, max_len=args.max_len, poly_norm_m=args.poly_norm_m, x_train_char=data.test_x_char, y_train_char=data.test_y_char)
 
 if args.debug:
   forward_scores = []
   while not end_of_epoch:
     ((x_test, x_mask, x_len, x_count),
      (y_test, y_mask, y_len, y_count),
-     batch_size, end_of_epoch) = data.next_test(test_batch_size=hparams.batch_size, sort_by_x=True)
+     batch_size, end_of_epoch), x_test_char, y_test_char = data.next_test(test_batch_size=hparams.batch_size, sort_by_x=True)
   
     num_sentences += batch_size
-    logits = model.forward(x_test, x_mask, x_len, y_test[:,:-1,:], y_mask[:,:-1], y_len, y_test[:,1:,2])
+    logits = model.forward(x_test, x_mask, x_len, y_test[:,:-1,:], y_mask[:,:-1], y_len, y_test[:,1:,2], x_test_char, y_test_char)
     logits = logits.view(-1, hparams.target_rule_vocab_size+hparams.target_word_vocab_size)
     labels = y_test[:,1:,0].contiguous().view(-1)
     val_loss, val_acc, rule_loss, word_loss, eos_loss, rule_count, word_count, eos_count =  \

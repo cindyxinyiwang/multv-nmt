@@ -183,8 +183,20 @@ class Encoder(nn.Module):
                                  padding_idx=hparams.pad_id)
 
     if self.hparams.char_ngram_n > 0:
-      self.char_emb_proj = nn.Linear(self.hparams.src_char_vsize, self.hparams.d_word_vec)
-    self.layer = nn.LSTM(self.hparams.d_word_vec, 
+      self.char_emb_proj = nn.Linear(self.hparams.src_char_vsize, self.hparams.d_word_vec, bias=False)
+      if self.hparams.cuda:
+        self.char_emb_proj = self.char_emb_proj.cuda()
+    elif self.hparams.char_input:
+      self.char_emb = nn.Embedding(self.hparams.src_char_vsize, self.hparams.d_word_vec, padding_idx=hparams.pad_id)
+      if self.hparams.cuda:
+        self.char_emb = self.char_emb.cuda()
+
+    if self.hparams.char_comb == "add":
+      d_word_vec = self.hparams.d_word_vec
+    elif self.hparams.char_comb == "cat":
+      d_word_vec = self.hparams.d_word_vec * 2
+
+    self.layer = nn.LSTM(d_word_vec, 
                          self.hparams.d_model, 
                          bidirectional=True, 
                          dropout=hparams.dropout)
@@ -199,7 +211,7 @@ class Encoder(nn.Module):
       self.dropout = self.dropout.cuda()
       self.bridge = self.bridge.cuda()
 
-  def forward(self, x_train, x_len, x_char_emb=None):
+  def forward(self, x_train, x_len, x_train_char=None):
     """Performs a forward pass.
     Args:
       x_train: Torch Tensor of size [batch_size, max_len]
@@ -210,15 +222,36 @@ class Encoder(nn.Module):
       enc_output: Tensor of size [batch_size, max_len, d_model].
     """
     batch_size, max_len = x_train.size()
-    #print("x_train", x_train)
-    #print("x_len", x_len)
     x_train = x_train.transpose(0, 1)
     # [batch_size, max_len, d_word_vec]
     word_emb = self.word_emb(x_train)
     word_emb = self.dropout(word_emb)
-    if x_char_emb:
-      char_emb = torch.nn.functional.tanh(self.char_emb_proj(x_char_emb))
-      word_emb = word_emb + char_emb
+    if self.hparams.char_ngram_n > 0:
+      for idx, x_char_sent in enumerate(x_train_char):
+        emb = Variable(x_char_sent.to_dense(), requires_grad=False)
+        if self.hparams.cuda: emb = emb.cuda()
+        x_char_sent = torch.tanh(self.char_emb_proj(emb))
+        x_train_char[idx] = x_char_sent
+      char_emb = torch.stack(x_train_char, dim=0).permute(1, 0, 2)
+      if self.hparams.char_comb == 'add':
+        if self.hparams.char_temp:
+          word_emb = word_emb * (1-self.hparams.char_temp) + char_emb * self.hparams.char_temp
+        else:
+          word_emb = word_emb + char_emb
+      elif self.hparams.char_comb == 'cat':
+        word_emb = torch.cat([word_emb, char_emb], dim=-1)
+    elif self.hparams.char_input:
+      # [batch_size, max_len, char_len, d_word_vec]
+      char_emb = self.char_emb(x_train_char.permute(1, 0, 2))
+      char_emb = char_emb.sum(dim=2)
+      if self.hparams.char_comb == 'add':
+        if self.hparams.char_temp:
+          word_emb = word_emb * (1-self.hparams.char_temp) + char_emb * self.hparams.char_temp
+        else:
+          word_emb = word_emb + char_emb
+      elif self.hparams.char_comb == 'cat':
+        word_emb = torch.cat([word_emb, char_emb], dim=-1)
+
     packed_word_emb = pack_padded_sequence(word_emb, x_len)
     enc_output, (ht, ct) = self.layer(packed_word_emb)
     enc_output, _ = pad_packed_sequence(enc_output,  padding_value=self.hparams.pad_id)
@@ -242,8 +275,23 @@ class Decoder(nn.Module):
     self.word_emb = nn.Embedding(self.hparams.trg_vocab_size,
                                  self.hparams.d_word_vec,
                                  padding_idx=hparams.pad_id)
+
+    if self.hparams.char_ngram_n > 0:
+      self.char_emb_proj = nn.Linear(self.hparams.trg_char_vsize, self.hparams.d_word_vec, bias=False)
+      if self.hparams.cuda:
+        self.char_emb_proj = self.char_emb_proj.cuda()
+    elif self.hparams.char_input:
+      self.char_emb = nn.Embedding(self.hparams.trg_char_vsize, self.hparams.d_word_vec, padding_idx=hparams.pad_id)
+      if self.hparams.cuda:
+        self.char_emb = self.char_emb.cuda()
+
+    if self.hparams.char_comb == "add":
+      d_word_vec = self.hparams.d_word_vec
+    elif self.hparams.char_comb == "cat":
+      d_word_vec = self.hparams.d_word_vec * 2
+
     # input: [y_t-1, input_feed]
-    self.layer = nn.LSTMCell(hparams.d_word_vec + hparams.d_model * 2, 
+    self.layer = nn.LSTMCell(d_word_vec + hparams.d_model * 2, 
                              hparams.d_model)
     self.dropout = nn.Dropout(hparams.dropout)
     if self.hparams.cuda:
@@ -253,7 +301,7 @@ class Decoder(nn.Module):
       self.layer = self.layer.cuda()
       self.dropout = self.dropout.cuda()
 
-  def forward(self, x_enc, x_enc_k, dec_init, x_mask, y_train, y_mask):
+  def forward(self, x_enc, x_enc_k, dec_init, x_mask, y_train, y_mask, y_train_char=None):
     # get decoder init state and cell, use x_ct
     """
     x_enc: [batch_size, max_x_len, d_model * 2]
@@ -268,6 +316,32 @@ class Decoder(nn.Module):
       input_feed = input_feed.cuda()
     # [batch_size, y_len, d_word_vec]
     trg_emb = self.word_emb(y_train)
+    if self.hparams.char_ngram_n > 0:
+      for idx, y_char_sent in enumerate(y_train_char):
+        emb = Variable(y_char_sent.to_dense(), requires_grad=False)[:-1,:]
+        if self.hparams.cuda: emb = emb.cuda()
+        y_char_sent = torch.tanh(self.char_emb_proj(emb))
+        y_train_char[idx] = y_char_sent
+      char_emb = torch.stack(y_train_char, dim=0)
+      if self.hparams.char_comb == 'add':
+        if self.hparams.char_temp:
+          trg_emb = trg_emb * (1-self.hparams.char_temp) + char_emb * self.hparams.char_temp
+        else:
+          trg_emb = trg_emb + char_emb
+      elif self.hparams.char_comb == 'cat':
+        trg_emb = torch.cat([trg_emb, char_emb], dim=-1)
+    elif self.hparams.char_input:
+      # [batch_size, max_len, char_len, d_word_vec]
+      char_emb = self.char_emb(y_train_char)
+      char_emb = char_emb.sum(dim=2)[:,:-1,:]
+      if self.hparams.char_comb == 'add':
+        if self.hparams.char_temp:
+          trg_emb = trg_emb * (1-self.hparams.char_temp) + char_emb * self.hparams.char_temp
+        else:
+          trg_emb = trg_emb + char_emb
+      elif self.hparams.char_comb == 'cat':
+        trg_emb = torch.cat([trg_emb, char_emb], dim=-1)
+
     pre_readouts = []
     logits = []
     for t in range(y_max_len):
@@ -286,8 +360,28 @@ class Decoder(nn.Module):
     logits = self.readout(torch.stack(pre_readouts)).transpose(0, 1).contiguous()
     return logits
 
-  def step(self, x_enc, x_enc_k, y_tm1, dec_state, ctx_t):
+  def step(self, x_enc, x_enc_k, y_tm1, dec_state, ctx_t, data):
     y_emb_tm1 = self.word_emb(y_tm1)
+    if self.hparams.char_ngram_n > 0:
+      emb = data.get_char_emb(y_tm1.item())
+      if self.hparams.cuda: emb = emb.cuda()
+      emb = torch.tanh(self.char_emb_proj(emb))
+      if self.hparams.char_comb == 'add':
+        if self.hparams.char_temp:
+          y_emb_tm1 = y_emb_tm1 * (1 - self.hparams.char_temp) + emb * self.hparams.char_temp
+        else:
+          y_emb_tm1 = y_emb_tm1 + emb
+      elif self.hparams.char_comb == 'cat':
+        y_emb_tm1 = torch.cat([y_emb_tm1, emb], dim=-1)
+    elif self.char_input:
+      # [1, char_len]
+      char = data.get_char_emb(y_tm1.item())     
+      emb = self.char_emb(char).sum(dim=1)
+      if self.hparams.char_comb == 'add':
+        y_emb_tm1 = y_emb_tm1 + emb
+      elif self.hparams.char_comb == 'cat':
+        y_emb_tm1 = torch.cat([y_emb_tm1, emb], dim=-1)
+
     y_input = torch.cat([y_emb_tm1, ctx_t], dim=1)
     #print (y_input.size())
     #print (dec_state[0].size())
@@ -301,42 +395,43 @@ class Decoder(nn.Module):
 
 class Seq2Seq(nn.Module):
   
-  def __init__(self, hparams):
+  def __init__(self, hparams, data):
     super(Seq2Seq, self).__init__()
     self.encoder = Encoder(hparams)
     self.decoder = Decoder(hparams)
+    self.data = data
     # transform encoder state vectors into attention key vector
     self.enc_to_k = nn.Linear(hparams.d_model * 2, hparams.d_model, bias=False)
     self.hparams = hparams
     if self.hparams.cuda:
       self.enc_to_k = self.enc_to_k.cuda()
 
-  def forward(self, x_train, x_mask, x_len, y_train, y_mask, y_len):
+  def forward(self, x_train, x_mask, x_len, y_train, y_mask, y_len, x_train_char_sparse=None, y_train_char_sparse=None):
     # [batch_size, x_len, d_model * 2]
     #print("x_train", x_train)
     #print("x_mask", x_mask)
     #print("x_len", x_len)
-    x_enc, dec_init = self.encoder(x_train, x_len)
+    x_enc, dec_init = self.encoder(x_train, x_len, x_train_char_sparse)
     x_enc_k = self.enc_to_k(x_enc)
     # [batch_size, y_len-1, trg_vocab_size]
-    logits = self.decoder(x_enc, x_enc_k, dec_init, x_mask, y_train, y_mask)
+    logits = self.decoder(x_enc, x_enc_k, dec_init, x_mask, y_train, y_mask, y_train_char_sparse)
     return logits
 
-  def translate(self, x_train, max_len=100, beam_size=5, poly_norm_m=0):
+  def translate(self, x_train, max_len=100, beam_size=5, poly_norm_m=0, x_train_char=None, y_train_char=None):
     hyps = []
-    for x in x_train:
+    for x, x_char in zip(x_train, x_train_char):
       x = Variable(torch.LongTensor(x), volatile=True)
       if self.hparams.cuda:
         x = x.cuda()
-      hyp = self.translate_sent(x, max_len=max_len, beam_size=beam_size, poly_norm_m=poly_norm_m)[0]
+      hyp = self.translate_sent(x, max_len=max_len, beam_size=beam_size, poly_norm_m=poly_norm_m, x_train_char=x_char)[0]
       hyps.append(hyp.y[1:-1])
     return hyps
 
-  def translate_sent(self, x_train, max_len=100, beam_size=5, poly_norm_m=0):
+  def translate_sent(self, x_train, max_len=100, beam_size=5, poly_norm_m=0, x_train_char=None):
     assert len(x_train.size()) == 1
     x_len = [x_train.size(0)]
     x_train = x_train.unsqueeze(0)
-    x_enc, dec_init = self.encoder(x_train, x_len)
+    x_enc, dec_init = self.encoder(x_train, x_len, x_train_char)
     x_enc_k = self.enc_to_k(x_enc)
     length = 0
     completed_hyp = []
@@ -347,18 +442,11 @@ class Seq2Seq(nn.Module):
     while len(completed_hyp) < beam_size and length < max_len:
       length += 1
       new_hyp_score_list = []
-      #hyp_num = len(active_hyp)
-      #cur_x_enc = x_enc.repeat(hyp_num, 1, 1)
-      #cur_x_enc_k = x_enc_k.repeat(hyp_num, 1, 1)
-      #y_tm1 = Variable(torch.LongTensor([hyp.y[-1] for hyp in active_hyp]), volatile=True)
-      #if self.hparams.cuda:
-      #  y_tm1 = y_tm1.cuda()
-      #logits = self.decoder.step(cur_x_enc, cur_x_enc_k, y_tm1, )
       for i, hyp in enumerate(active_hyp):
         y_tm1 = Variable(torch.LongTensor([int(hyp.y[-1])] ), volatile=True)
         if self.hparams.cuda:
           y_tm1 = y_tm1.cuda()
-        logits, dec_state, ctx = self.decoder.step(x_enc, x_enc_k, y_tm1, hyp.state, hyp.ctx_tm1)
+        logits, dec_state, ctx = self.decoder.step(x_enc, x_enc_k, y_tm1, hyp.state, hyp.ctx_tm1, self.data)
         hyp.state = dec_state
         hyp.ctx_tm1 = ctx 
 
@@ -367,15 +455,7 @@ class Seq2Seq(nn.Module):
           new_hyp_scores = (hyp.score * pow(length-1, poly_norm_m) + p_t) / pow(length, poly_norm_m)
         else:
           new_hyp_scores = hyp.score + p_t 
-        #print(new_hyp_scores)
-        #print(p_t)
         new_hyp_score_list.append(new_hyp_scores)
-        #print(hyp.y)
-        #print(dec_state)
-        #if len(active_hyp) > i+1:
-        #  print(active_hyp[i+1].state)
-      #print()
-      #exit(0)
       live_hyp_num = beam_size - len(completed_hyp)
       new_hyp_scores = np.concatenate(new_hyp_score_list).flatten()
       new_hyp_pos = (-new_hyp_scores).argsort()[:live_hyp_num]

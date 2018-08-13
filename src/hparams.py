@@ -20,11 +20,11 @@ class HParams(object):
 
     for name, value in args.items():
       setattr(self, name, value)
-    if hasattr(self, 'train_src_file_list'):
+    if hasattr(self, 'train_src_file_list') and type(self.train_src_file_list) == str:
       self.train_src_file_list = self.train_src_file_list.split(',')
-    if hasattr(self, 'train_trg_file_list'):
+    if hasattr(self, 'train_trg_file_list') and type(self.train_trg_file_list) == str:
       self.train_trg_file_list = self.train_trg_file_list.split(',')   
-    if hasattr(self, 'src_vocab_list'):
+    if hasattr(self, 'src_vocab_list') and type(self.src_vocab_list) == str:
       self.src_vocab_list = self.src_vocab_list.split(',')
-    if hasattr(self, 'trg_vocab_list'):
+    if hasattr(self, 'trg_vocab_list') and type(self.trg_vocab_list) == str:
       self.trg_vocab_list = self.trg_vocab_list.split(',')
