@@ -30,6 +30,7 @@ parser.add_argument("--poly_norm_m", type=float, default=1, help="beam size for 
 parser.add_argument("--ppl_thresh", type=float, default=20, help="beam size for dev BLEU")
 parser.add_argument("--max_trans_len", type=int, default=300, help="beam size for dev BLEU")
 parser.add_argument("--merge_bpe", action="store_true", help="if calculate BLEU score for dev set")
+parser.add_argument("--dev_zero", action="store_true", help="if eval at step 0")
 
 parser.add_argument("--cuda", action="store_true", help="GPU or not")
 parser.add_argument("--decode", action="store_true", help="whether to decode only")
@@ -80,6 +81,8 @@ parser.add_argument("--char_input", action="store_true", help="whether to prepar
 parser.add_argument("--char_comb", type=str, default="add", help="[cat|add]")
 
 parser.add_argument("--char_temp", type=float, default=None, help="temperature to combine word and char emb")
+
+parser.add_argument("--pretrained_model", type=str, default=None, help="location of pretrained model")
 args = parser.parse_args()
 
 def eval(model, data, crit, step, hparams, eval_bleu=False,
@@ -99,9 +102,6 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
   if eval_bleu:
     valid_hyp_file = os.path.join(args.output_dir, "dev.trans_{0}".format(step))
     out_file = open(valid_hyp_file, 'w', encoding='utf-8')
-    if args.trdec:
-      valid_parse_file = valid_hyp_file + ".parse"
-      out_parse_file = open(valid_parse_file, 'w', encoding='utf-8')
   while True:
     # clear GPU memory
     gc.collect()
@@ -131,14 +131,15 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
       break
   # BLEU eval
   if eval_bleu:
-    x_valid = data.x_valid.tolist()
-    #print(x_valid)
-    #x_valid = Variable(torch.LongTensor(x_valid), volatile=True)
+    x_valid = data.dev_x
+    x_dev_char, y_dev_char = data.get_trans_char(data.dev_x_char_kv), data.get_trans_char(data.dev_y_char_kv)
     hyps = model.translate(
-          x_valid, beam_size=args.beam_size, max_len=args.max_trans_len, poly_norm_m=args.poly_norm_m)
+          x_valid, beam_size=args.beam_size, max_len=args.max_trans_len, poly_norm_m=args.poly_norm_m, x_train_char=x_dev_char, y_train_char=y_dev_char)
+    #print(x_valid)
+    #print(hyps)
     for h in hyps:
-      h_best_words = map(lambda wi: data.target_index_to_word[wi],
-                       filter(lambda wi: wi not in hparams.filtered_tokens, h))
+      h_best_words = map(lambda wi: data.trg_i2w_list[0][wi],
+                       filter(lambda wi: wi not in [hparams.bos_id, hparams.eos_id], h))
       if hparams.merge_bpe:
         line = ''.join(h_best_words)
         line = line.replace('▁', ' ')
@@ -154,7 +155,7 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
   log_string += " val_ppl={0:<.2f}".format(val_ppl)
   if eval_bleu:
     out_file.close()
-    ref_file = os.path.join(hparams.data_path, args.target_valid)
+    ref_file = os.path.join(hparams.data_path, args.dev_trg_ref)
     bleu_str = subprocess.getoutput(
       "./multi-bleu.perl {0} < {1}".format(ref_file, valid_hyp_file))
     log_string += "\n{}".format(bleu_str)
@@ -235,17 +236,27 @@ def train():
     extra_file_name = os.path.join(args.output_dir, "extra.pt")
     step, best_val_ppl, best_val_bleu, cur_attempt, lr = torch.load(extra_file_name)
   else:
-    model = Seq2Seq(hparams=hparams, data=data)
-    if args.init_type == "uniform":
-      print("initialize uniform with range {}".format(args.init_range))
-      for p in model.parameters():
-        p.data.uniform_(-args.init_range, args.init_range)
+    if args.pretrained_model:
+      print("Loading model from '{0}'".format(args.pretrained_model))
+      model = torch.load(args.pretrained_model)
+      if not hasattr(model, 'data'):
+        model.data = data
+      if not hasattr(model, 'char_ngram_n'):
+        model.hparams.char_ngram_n = 0
+      if not hasattr(model, 'char_input'):
+        model.hparams.char_input = None
+    else:
+      model = Seq2Seq(hparams=hparams, data=data)
+      if args.init_type == "uniform":
+        print("initialize uniform with range {}".format(args.init_range))
+        for p in model.parameters():
+          p.data.uniform_(-args.init_range, args.init_range)
     trainable_params = [
       p for p in model.parameters() if p.requires_grad]
     optim = torch.optim.Adam(trainable_params, lr=hparams.lr, weight_decay=hparams.l2_reg)
     #optim = torch.optim.Adam(trainable_params)
     step = 0
-    best_val_ppl = 1e10
+    best_val_ppl = 50
     best_val_bleu = 0
     cur_attempt = 0
     lr = hparams.lr
@@ -271,17 +282,6 @@ def train():
   #i = 0
   while True:
     x_train, x_mask, x_count, x_len, y_train, y_mask, y_count, y_len, batch_size, x_train_char_sparse, y_train_char_sparse = data.next_train()
-    #print("x_train", x_train.size())
-    #print("y_train", y_train.size())
-    #print(i)
-    #i += 1
-    #print("x_train", x_train)
-    #print("x_mask", x_mask)
-    #print("x_len", x_len)
-    #print("y_train", y_train)
-    #print("y_mask", y_mask)
-    #print("y_len", y_len)
-    #exit(0)
     optim.zero_grad()
     target_words += (y_count - batch_size)
     logits = model.forward(x_train, x_mask, x_len, y_train[:,:-1], y_mask[:,:-1], y_len, x_train_char_sparse, y_train_char_sparse)
@@ -292,6 +292,38 @@ def train():
     total_loss += tr_loss.item()
     total_corrects += tr_acc.item()
     step += 1
+
+    if args.dev_zero:
+      args.dev_zero = False
+      based_on_bleu = args.eval_bleu and best_val_ppl <= args.ppl_thresh
+      val_ppl, val_bleu = eval(model, data, crit, step, hparams, eval_bleu=based_on_bleu, valid_batch_size=args.valid_batch_size, tr_logits=logits)	
+      if based_on_bleu:
+        if best_val_bleu <= val_bleu:
+          save = True 
+          best_val_bleu = val_bleu
+          cur_attempt = 0
+        else:
+          save = False
+          cur_attempt += 1
+      else:
+      	if best_val_ppl >= val_ppl:
+          save = True
+          best_val_ppl = val_ppl
+          cur_attempt = 0 
+      	else:
+          save = False
+          cur_attempt += 1
+      if save:
+      	save_checkpoint([step, best_val_ppl, best_val_bleu, cur_attempt, lr], 
+      		             model, optim, hparams, args.output_dir)
+      else:
+        lr = lr * args.lr_dec
+        set_lr(optim, lr)
+      # reset counter after eval
+      log_start_time = time.time()
+      target_words = total_corrects = total_loss = 0
+      target_rules = target_total = target_eos = 0
+      total_word_loss = total_rule_loss = total_eos_loss = 0
 
     tr_loss.div_(batch_size)
     tr_loss.backward()

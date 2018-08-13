@@ -234,12 +234,12 @@ class Encoder(nn.Module):
         x_train_char[idx] = x_char_sent
       char_emb = torch.stack(x_train_char, dim=0).permute(1, 0, 2)
       if self.hparams.char_comb == 'add':
-        if self.hparams.char_temp < 1:
+        if not self.hparams.char_temp:
+          word_emb = word_emb + char_emb
+        elif self.hparams.char_temp < 1:
           word_emb = word_emb * (1-self.hparams.char_temp) + char_emb * self.hparams.char_temp
         elif self.hparams.char_temp > 1:
           word_emb = word_emb + char_emb * self.hparams.char_temp
-        else:
-          word_emb = word_emb + char_emb
       elif self.hparams.char_comb == 'cat':
         word_emb = torch.cat([word_emb, char_emb], dim=-1)
     elif self.hparams.char_input:
@@ -247,12 +247,12 @@ class Encoder(nn.Module):
       char_emb = self.char_emb(x_train_char.permute(1, 0, 2))
       char_emb = char_emb.sum(dim=2)
       if self.hparams.char_comb == 'add':
-        if self.hparams.char_temp < 1:
+        if not self.hparams.char_temp:
+          word_emb = word_emb + char_emb
+        elif self.hparams.char_temp < 1:
           word_emb = word_emb * (1-self.hparams.char_temp) + char_emb * self.hparams.char_temp
         elif self.hparams.char_temp > 1:
           word_emb = word_emb + char_emb * self.hparams.char_temp
-        else:
-          word_emb = word_emb + char_emb
       elif self.hparams.char_comb == 'cat':
         word_emb = torch.cat([word_emb, char_emb], dim=-1)
 
@@ -328,12 +328,12 @@ class Decoder(nn.Module):
         y_train_char[idx] = y_char_sent
       char_emb = torch.stack(y_train_char, dim=0)
       if self.hparams.char_comb == 'add':
-        if self.hparams.char_temp < 1:
+        if not self.hparams.char_temp:
+          trg_emb = trg_emb + char_emb
+        elif self.hparams.char_temp < 1:
           trg_emb = trg_emb * (1-self.hparams.char_temp) + char_emb * self.hparams.char_temp
         elif self.hparams.char_temp > 1:
           trg_emb = trg_emb + char_emb * self.hparams.char_temp
-        else:
-          trg_emb = trg_emb + char_emb
       elif self.hparams.char_comb == 'cat':
         trg_emb = torch.cat([trg_emb, char_emb], dim=-1)
     elif self.hparams.char_input:
@@ -341,12 +341,12 @@ class Decoder(nn.Module):
       char_emb = self.char_emb(y_train_char)
       char_emb = char_emb.sum(dim=2)[:,:-1,:]
       if self.hparams.char_comb == 'add':
-        if self.hparams.char_temp < 1:
+        if not self.hparams.char_temp:
+          trg_emb = trg_emb + char_emb
+        elif self.hparams.char_temp < 1:
           trg_emb = trg_emb * (1-self.hparams.char_temp) + char_emb * self.hparams.char_temp
         elif self.hparams_char_temp > 1:
           trg_emb = trg_emb + char_emb * self.hparams.char_temp
-        else:
-          trg_emb = trg_emb + char_emb
       elif self.hparams.char_comb == 'cat':
         trg_emb = torch.cat([trg_emb, char_emb], dim=-1)
 
@@ -375,15 +375,15 @@ class Decoder(nn.Module):
       if self.hparams.cuda: emb = emb.cuda()
       emb = torch.tanh(self.char_emb_proj(emb))
       if self.hparams.char_comb == 'add':
-        if self.hparams.char_temp < 1:
+        if not self.hparams.char_temp:
+          y_emb_tm1 = y_emb_tm1 + emb
+        elif self.hparams.char_temp < 1:
           y_emb_tm1 = y_emb_tm1 * (1 - self.hparams.char_temp) + emb * self.hparams.char_temp
         elif self.hparams.char_temp > 1:
           y_emb_tm1 = y_emb_tm1 + emb * self.hparams.char_temp
-        else:
-          y_emb_tm1 = y_emb_tm1 + emb
       elif self.hparams.char_comb == 'cat':
         y_emb_tm1 = torch.cat([y_emb_tm1, emb], dim=-1)
-    elif self.char_input:
+    elif self.hparams.char_input:
       # [1, char_len]
       char = data.get_char_emb(y_tm1.item())     
       emb = self.char_emb(char).sum(dim=1)
@@ -434,7 +434,11 @@ class Seq2Seq(nn.Module):
 
   def translate(self, x_train, max_len=100, beam_size=5, poly_norm_m=0, x_train_char=None, y_train_char=None):
     hyps = []
-    for x, x_char in zip(x_train, x_train_char):
+    for i, x in enumerate(x_train):
+      if x_train_char:
+        x_char = x_train_char[i]
+      else:
+        x_char = None
       x = Variable(torch.LongTensor(x), volatile=True)
       if self.hparams.cuda:
         x = x.cuda()
