@@ -30,6 +30,26 @@ class DataUtil(object):
       if self.hparams.trg_vocab_size is None:
         self.hparams.trg_vocab_size = len(i2w)
         print("setting trg_vocab_size to {}...".format(self.hparams.trg_vocab_size))
+    
+    if self.hparams.char_ngram_n > 0 or self.hparams.char_input:
+      src, trg = self.hparams.train_src_file_list[0], self.hparams.train_trg_file_list[0]
+      src = os.path.join(self.hparams.data_path, src)
+      trg = os.path.join(self.hparams.data_path, trg)
+      print("build char vocab from {} and {}".format(src, trg))
+      with open(src, 'r', encoding='utf-8') as f:
+        src_lines = f.read().split('\n')
+      with open(trg, 'r', encoding='utf-8') as f:
+        trg_lines = f.read().split('\n') 
+      if self.hparams.char_ngram_n > 0:
+        self.src_char_i2w, self.src_char_w2i = self._build_char_ngram_vocab(src_lines, self.hparams.char_ngram_n, self.hparams.max_char_vocab_size)
+        self.trg_char_i2w, self.trg_char_w2i = self._build_char_ngram_vocab(trg_lines, self.hparams.char_ngram_n, self.hparams.max_char_vocab_size)
+      elif self.hparams.char_input:
+        self.src_char_i2w, self.src_char_w2i = self._build_char_vocab(src_lines)
+        self.trg_char_i2w, self.trg_char_w2i = self._build_char_vocab(trg_lines)
+      self.src_char_vsize, self.trg_char_vsize = len(self.src_char_i2w), len(self.trg_char_i2w)
+      setattr(self.hparams, 'src_char_vsize', self.src_char_vsize)
+      setattr(self.hparams, 'trg_char_vsize', self.trg_char_vsize)
+      print("src_char_vsize={} trg_char_vsize={}".format(self.src_char_vsize, self.trg_char_vsize))
 
     if not self.hparams.decode:
       assert len(self.src_i2w_list) == len(self.hparams.train_src_file_list)
@@ -37,19 +57,19 @@ class DataUtil(object):
       self.train_x = []
       self.train_y = []
 
-      self.train_x_char_emb = []
-      self.train_y_char_emb = []
+      self.train_x_char_kv = []
+      self.train_y_char_kv = []
       i, self.train_size = 0, 0
       self.n_train_batches = None
       for s_file,t_file in zip(self.hparams.train_src_file_list, self.hparams.train_trg_file_list):
         s_file = os.path.join(self.hparams.data_path, s_file)
         t_file = os.path.join(self.hparams.data_path, t_file)
-        train_x, train_y, x_char_emb, y_char_emb = self._build_parallel(s_file, t_file, i)
+        train_x, train_y, x_char_kv, y_char_kv = self._build_parallel(s_file, t_file, i)
         self.train_x.extend(train_x)
         self.train_y.extend(train_y)
-        if not x_char_emb is None:
-          self.train_x_char_emb.extend(x_char_emb)
-          self.train_y_char_emb.extend(y_char_emb)
+        if not x_char_kv is None:
+          self.train_x_char_kv.extend(x_char_kv)
+          self.train_y_char_kv.extend(y_char_kv)
         i += 1
         self.train_size += len(train_x)
       if not self.hparams.load_model:
@@ -58,16 +78,63 @@ class DataUtil(object):
       else:
         dev_src_file = self.hparams.dev_src_file
         dev_trg_file = self.hparams.dev_trg_file
-      self.dev_x, self.dev_y, self.dev_x_char_emb, self.dev_y_char_emb = self._build_parallel(dev_src_file, dev_trg_file, 0)
+      self.dev_x, self.dev_y, self.dev_x_char_kv, self.dev_y_char_kv = self._build_parallel(dev_src_file, dev_trg_file, 0)
       self.dev_size = len(self.dev_x)
       self.reset_train()
       self.dev_index = 0
     else:
       test_src_file = os.path.join(self.hparams.data_path, self.hparams.test_src_file)
       test_trg_file = os.path.join(self.hparams.data_path, self.hparams.test_trg_file)
-      self.test_x, self.test_y, self.test_x_char_emb, self.test_y_char_emb = self._build_parallel(test_src_file, test_trg_file, 0)
+      self.test_x, self.test_y, self.test_x_char_kv, self.test_y_char_kv = self._build_parallel(test_src_file, test_trg_file, 0)
       self.test_size = len(self.test_x)
       self.test_index = 0
+      if self.hparams.char_ngram_n > 0:
+        self.test_x_char = []
+        for kvs in self.test_x_char_kv:
+          key, val = [], []
+          sent_sparse = []
+          for i, kv in enumerate(kvs):
+            key.append(torch.LongTensor([[i for _ in range(len(kv.keys()))], list(kv.keys())]))
+            val.extend(list(kv.values()))
+          key = torch.cat(key, dim=1)
+          val = torch.FloatTensor(val)
+          sent_sparse = torch.sparse.FloatTensor(key, val, torch.Size([len(kvs), self.hparams.src_char_vsize]))
+          # (batch_size, max_len, char_dim)
+          self.test_x_char.append([sent_sparse])
+
+        self.test_y_char = []
+        for kvs in self.test_y_char_kv:
+          key, val = [], []
+          sent_sparse = []
+          for i, kv in enumerate(kvs):
+            key.append(torch.LongTensor([[i for _ in range(len(kv.keys()))], list(kv.keys())]))
+            val.extend(list(kv.values()))
+          key = torch.cat(key, dim=1)
+          val = torch.FloatTensor(val)
+          sent_sparse = torch.sparse.FloatTensor(key, val, torch.Size([len(kvs), self.hparams.trg_char_vsize]))
+          # (batch_size, max_len, char_dim)
+          self.test_y_char.append([sent_sparse])
+      else:
+        self.test_x_char, self.test_y_char = None, None
+
+  def get_char_emb(self, word_idx, is_trg=True):
+    if is_trg:
+      w2i, i2w, vsize = self.trg_char_w2i, self.trg_char_i2w, self.hparams.trg_char_vsize
+      word = self.trg_i2w_list[0][word_idx]
+    else:
+      w2i, i2w, vsize = self.src_char_w2i, self.src_char_i2w, self.hparams.src_char_vsize
+      word = self.src_i2w_list[0][word_idx]
+    if self.hparams.char_ngram_n > 0:
+      if word_idx == self.hparams.bos_id or word_idx == self.hparams.eos_id or word_idx == self.hparams.pad_id:
+        kv = {0:0}
+      else:
+        kv = self._get_ngram_counts(word, i2w, w2i, self.hparams.char_ngram_n)
+      key = torch.LongTensor([[0 for _ in range(len(kv.keys()))], list(kv.keys())])
+      val = torch.FloatTensor(list(kv.values()))
+      ret = torch.sparse.FloatTensor(key, val, torch.Size([1, vsize]))
+    else:
+      ret = self._get_char(word, i2w, w2i)
+    return ret
 
   def reset_train(self):
     if self.hparams.batcher == "word":
@@ -109,10 +176,10 @@ class DataUtil(object):
 
     x_train = self.train_x[start_index:end_index]
     y_train = self.train_y[start_index:end_index]
-    if self.hparams.char_ngram_n > 0:
-      x_train_char_emb = self.train_x_char_emb[start_index:end_index]
-      y_train_char_emb = self.train_y_char_emb[start_index:end_index]
-      x_train, y_train, x_train_char_emb, y_train_char_emb = self.sort_by_xlen(x_train, y_train, x_train_char_emb, y_train_char_emb)
+    if self.hparams.char_ngram_n > 0 or self.hparams.char_input:
+      x_train_char_kv = self.train_x_char_kv[start_index:end_index]
+      y_train_char_kv = self.train_y_char_kv[start_index:end_index]
+      x_train, y_train, x_train_char_kv, y_train_char_kv = self.sort_by_xlen(x_train, y_train, x_train_char_kv, y_train_char_kv)
     else:
       x_train, y_train = self.sort_by_xlen(x_train, y_train)
 
@@ -121,15 +188,19 @@ class DataUtil(object):
     y_count = sum([len(y) for y in y_train])
     # pad 
     if self.hparams.char_ngram_n > 0:
-      x_train, x_mask, x_count, x_len, x_train_char_emb = self._pad(x_train, self.hparams.pad_id, x_train_char_emb)
-      y_train, y_mask, y_count, y_len, y_train_char_emb = self._pad(y_train, self.hparams.pad_id, y_train_char_emb)
+      x_train, x_mask, x_count, x_len, x_train_char = self._pad(x_train, self.hparams.pad_id, x_train_char_kv, self.hparams.src_char_vsize)
+      y_train, y_mask, y_count, y_len, y_train_char = self._pad(y_train, self.hparams.pad_id, y_train_char_kv, self.hparams.trg_char_vsize)
+    elif self.hparams.char_input:
+      x_train, x_mask, x_count, x_len, x_train_char = self._pad(x_train, self.hparams.pad_id, char_sents=x_train_char_kv)
+      y_train, y_mask, y_count, y_len, y_train_char = self._pad(y_train, self.hparams.pad_id, char_sents=y_train_char_kv)
     else:
+      x_train_char, y_train_char = None, None
       x_train, x_mask, x_count, x_len = self._pad(x_train, self.hparams.pad_id)
       y_train, y_mask, y_count, y_len = self._pad(y_train, self.hparams.pad_id)
 
     if self.train_index >= self.n_train_batches:
       self.reset_train()
-    return x_train, x_mask, x_count, x_len, y_train, y_mask, y_count, y_len, batch_size
+    return x_train, x_mask, x_count, x_len, y_train, y_mask, y_count, y_len, batch_size, x_train_char, y_train_char
 
   def next_dev(self, dev_batch_size=10):
     start_index = self.dev_index
@@ -138,17 +209,21 @@ class DataUtil(object):
 
     x_dev = self.dev_x[start_index:end_index]
     y_dev = self.dev_y[start_index:end_index]
-    if self.hparams.char_ngram_n > 0:
-      x_dev_char_emb = self.dev_x_char_emb[start_index:end_index]
-      y_dev_char_emb = self.dev_y_char_emb[start_index:end_index]
-      x_dev, y_dev, x_dev_char_emb, y_dev_char_emb = self.sort_by_xlen(x_dev, y_dev, x_dev_char_emb, y_dev_char_emb)
+    if self.hparams.char_ngram_n > 0 or self.hparams.char_input:
+      x_dev_char_kv = self.dev_x_char_kv[start_index:end_index]
+      y_dev_char_kv = self.dev_y_char_kv[start_index:end_index]
+      x_dev, y_dev, x_dev_char_kv, y_dev_char_kv = self.sort_by_xlen(x_dev, y_dev, x_dev_char_kv, y_dev_char_kv)
     else:
       x_dev, y_dev = self.sort_by_xlen(x_dev, y_dev)
 
     if self.hparams.char_ngram_n > 0:
-      x_dev, x_mask, x_count, x_len, x_dev_char_emb = self._pad(x_dev, self.hparams.pad_id, x_dev_char_emb)
-      y_dev, y_mask, y_count, y_len, y_dev_char_emb = self._pad(y_dev, self.hparams.pad_id, y_dev_char_emb)
+      x_dev, x_mask, x_count, x_len, x_dev_char_sparse = self._pad(x_dev, self.hparams.pad_id, x_dev_char_kv, self.hparams.src_char_vsize)
+      y_dev, y_mask, y_count, y_len, y_dev_char_sparse = self._pad(y_dev, self.hparams.pad_id, y_dev_char_kv, self.hparams.trg_char_vsize)
+    elif self.hparams.char_input:
+      x_dev, x_mask, x_count, x_len, x_dev_char_sparse = self._pad(x_dev, self.hparams.pad_id, char_sents=x_dev_char_kv)
+      y_dev, y_mask, y_count, y_len, y_dev_char_sparse = self._pad(y_dev, self.hparams.pad_id, char_sents=y_dev_char_kv)
     else:
+      x_dev_char_sparse, y_dev_char_sparse = None, None
       x_dev, x_mask, x_count, x_len = self._pad(x_dev, self.hparams.pad_id)
       y_dev, y_mask, y_count, y_len = self._pad(y_dev, self.hparams.pad_id)
 
@@ -159,7 +234,7 @@ class DataUtil(object):
       eop = False
       self.dev_index += batch_size
 
-    return x_dev, x_mask, x_count, x_len, y_dev, y_mask, y_count, y_len, batch_size, eop
+    return x_dev, x_mask, x_count, x_len, y_dev, y_mask, y_count, y_len, batch_size, eop, x_dev_char_sparse, y_dev_char_sparse
 
   def next_test(self, test_batch_size=10):
     start_index = self.test_index
@@ -168,8 +243,16 @@ class DataUtil(object):
 
     x_test = self.test_x[start_index:end_index]
     y_test = self.test_y[start_index:end_index]
-    x_test, x_mask, x_count, x_len = self._pad(x_test, self.pad_id)
-    y_test, y_mask, y_count, y_len = self._pad(y_test, self.pad_id)
+    if self.hparams.char_ngram_n > 0:
+      x_test_char_kv = self.test_x_char_kv[start_index:end_index]
+      y_test_char_kv = self.test_y_char_kv[start_index:end_index]
+    if self.hparams.char_ngram_n > 0:
+      x_test, x_mask, x_count, x_len, x_test_char = self._pad(x_test, self.pad_id, x_test_char_kv, self.hparams.src_char_vsize)
+      y_test, y_mask, y_count, y_len, y_test_char = self._pad(y_test, self.pad_id, y_test_char_kv, self.hparams.trg_char_vsize)
+    else:
+      x_test_char, y_test_char = None, None
+      x_test, x_mask, x_count, x_len = self._pad(x_test, self.pad_id)
+      y_test, y_mask, y_count, y_len = self._pad(y_test, self.pad_id)
 
     if end_index >= self.test_size:
       eop = True
@@ -178,19 +261,71 @@ class DataUtil(object):
       eop = False
       self.test_index += batch_size
 
-    return x_test, x_mask, x_count, x_len, y_test, y_mask, y_count, y_len, batch_size, eop
+    return x_test, x_mask, x_count, x_len, y_test, y_mask, y_count, y_len, batch_size, eop, x_test_char, y_test_char
 
-  def sort_by_xlen(self, x, y, x_char_emb=None, y_char_emb=None):
+  def sort_by_xlen(self, x, y, x_char_kv=None, y_char_kv=None):
     x = np.array(x)
     y = np.array(y)
     x_len = [len(i) for i in x]
     index = np.argsort(x_len)[::-1]
     x, y = x[index].tolist(), y[index].tolist()
-    if x_char_emb:
-      x_char_emb, y_char_emb = np.array(x_char_emb), np.array(y_char_emb)
-      x_char_emb, y_char_emb = x_char_emb[index].tolist(), y_char_emb[index].tolist()
-      return x, y, x_char_emb, y_char_emb
+    if x_char_kv:
+      x_char_kv, y_char_kv = np.array(x_char_kv), np.array(y_char_kv)
+      x_char_kv, y_char_kv = x_char_kv[index].tolist(), y_char_kv[index].tolist()
+      return x, y, x_char_kv, y_char_kv
     return x, y
+
+  def _pad(self, sentences, pad_id, char_kv=None, char_dim=None, char_sents=None):
+    batch_size = len(sentences)
+    lengths = [len(s) for s in sentences]
+    count = sum(lengths)
+    max_len = max(lengths)
+    padded_sentences = [s + ([pad_id]*(max_len - len(s))) for s in sentences]
+    if char_kv:
+      for s, char in zip(sentences, char_kv): assert len(s) == len(char)
+      char_sparse = []
+      for kvs in char_kv:
+        sent_sparse = []
+        key, val = [], []
+        for i, kv in enumerate(kvs):
+          key.append(torch.LongTensor([[i for _ in range(len(kv.keys()))], list(kv.keys())]))
+          val.extend(list(kv.values()))
+        key = torch.cat(key, dim=1)
+        val = torch.FloatTensor(val)
+        sent_sparse = torch.sparse.FloatTensor(key, val, torch.Size([max_len, char_dim]))
+        # (batch_size, max_len, char_dim)
+        char_sparse.append(sent_sparse)
+    elif char_sents:
+      padded_char_sents = []
+      max_char_len = max([len(w) for sent in char_sents for w in sent])
+      for char_sent in char_sents:
+        padded_char_sent = [s + ([pad_id]*(max_char_len-len(s))) for s in char_sent]
+        padded_char_sent += [[pad_id]*max_char_len] * (max_len - len(padded_char_sent))
+        padded_char_sents.append(padded_char_sent)
+      # (batch_size, max_len, max_char_len, char_dim)
+      padded_char_sents = Variable(torch.LongTensor(padded_char_sents))
+      if self.hparams.cuda: padded_char_sents = padded_char_sents.cuda()
+    mask = [[0]*len(s) + [1]*(max_len - len(s)) for s in sentences]
+    padded_sentences = Variable(torch.LongTensor(padded_sentences))
+    mask = torch.ByteTensor(mask)
+    if self.hparams.cuda:
+      padded_sentences = padded_sentences.cuda()
+      mask = mask.cuda()
+    if char_kv:
+      return padded_sentences, mask, count, lengths, char_sparse
+    elif char_sents:
+      return padded_sentences, mask, count, lengths, padded_char_sents
+    else:
+      return padded_sentences, mask, count, lengths
+
+  def _get_char(self, word, i2w, w2i):
+    chars = []
+    for c in word:
+      if c in w2i:
+        chars.append(w2i[c])
+      else:
+        chars.append(self.hparams.unk_id)
+    return chars
 
   def _get_ngram_counts(self, word, i2w, w2i, n):
     count = {}
@@ -205,32 +340,6 @@ class DataUtil(object):
         count[ngram] += 1
     return count
 
-  def _pad(self, sentences, pad_id, char_emb=None):
-    batch_size = len(sentences)
-    lengths = [len(s) for s in sentences]
-    count = sum(lengths)
-    max_len = max(lengths)
-    padded_sentences = [s + ([pad_id]*(max_len - len(s))) for s in sentences]
-    if char_emb:
-      for s, char in zip(sentences, char_emb): assert len(s) == len(char)
-      padded_char_emb = []
-      for c_emb in char_emb:
-        c_emb = c_emb + ([torch.zeros(c_emb[0].size(0))]*(max_len - len(c_emb))) 
-        padded_char_emb.append(torch.stack(c_emb, 0))
-      padded_char_emb = Variable(torch.stack(padded_char_emb, 0)) 
-      #print(padded_char_emb)
-
-    mask = [[0]*len(s) + [1]*(max_len - len(s)) for s in sentences]
-    padded_sentences = Variable(torch.LongTensor(padded_sentences))
-    mask = torch.ByteTensor(mask)
-    if self.hparams.cuda:
-      padded_sentences = padded_sentences.cuda()
-      mask = mask.cuda()
-      if char_emb: padded_char_emb = padded_char_emb.cuda()
-    if char_emb:
-      return padded_sentences, mask, count, lengths, padded_char_emb
-    else:
-      return padded_sentences, mask, count, lengths
 
   def _build_parallel(self, src_file_name, trg_file_name, i):
     print("loading parallel sentences from {} {} with vocab {}".format(src_file_name, trg_file_name, i))
@@ -238,21 +347,12 @@ class DataUtil(object):
       src_lines = f.read().split('\n')
     with open(trg_file_name, 'r', encoding='utf-8') as f:
       trg_lines = f.read().split('\n')
-
     if self.hparams.char_ngram_n > 0:
-      self.src_char_i2w, self.src_char_w2i = self._build_char_vocab(src_lines, self.hparams.char_ngram_n, self.hparams.max_char_vocab_size)
-      self.trg_char_i2w, self.trg_char_w2i = self._build_char_vocab(trg_lines, self.hparams.char_ngram_n, self.hparams.max_char_vocab_size)
-      #print(self.src_char_i2w)
-      #print(self.src_char_w2i)
-      #print(self.trg_char_i2w)
-      #print(self.trg_char_w2i)
-      src_char_emb_list = []
-      trg_char_emb_list = []
-      self.src_char_vsize, self.trg_char_vsize = len(self.src_char_i2w), len(self.trg_char_i2w)
-      setattr(self.hparams, 'src_char_vsize', self.src_char_vsize)
-      setattr(self.hparams, 'trg_char_vsize', self.trg_char_vsize)
-      print("src_char_vsize={} trg_char_vsize={}".format(self.src_char_vsize, self.trg_char_vsize))
-
+      src_char_kv_data = []
+      trg_char_kv_data = []
+    elif self.hparams.char_input:
+      src_char_data = []
+      trg_char_data = []
     src_data = []
     trg_data = []
     line_count = 0
@@ -265,7 +365,9 @@ class DataUtil(object):
 
       src_indices, trg_indices = [self.hparams.bos_id], [self.hparams.bos_id] 
       if self.hparams.char_ngram_n > 0:
-        src_char_emb, trg_char_emb = [torch.zeros(self.src_char_vsize)], [torch.zeros(self.trg_char_vsize)]
+          src_char_kv, trg_char_kv = [{0:0}], [{0:0}]
+      elif self.hparams.char_input:
+          src_char, trg_char = [[self.hparams.pad_id]], [[self.hparams.pad_id]]
       src_unk_count = 0
       trg_unk_count = 0
       src_w2i = self.src_w2i_list[i]
@@ -278,10 +380,9 @@ class DataUtil(object):
         # calculate char ngram emb for src_tok
         if self.hparams.char_ngram_n > 0:
           ngram_counts = self._get_ngram_counts(src_tok, self.src_char_i2w, self.src_char_w2i, self.hparams.char_ngram_n)
-          emb = np.zeros(self.src_char_vsize)
-          emb[np.array(list(ngram_counts.keys()))] = list(ngram_counts.values())
-          #print(emb)
-          src_char_emb.append(torch.FloatTensor(emb.tolist()))
+          src_char_kv.append(ngram_counts)
+        elif self.hparams.char_input:
+          src_char.append(self._get_char(src_tok, self.src_char_i2w, self.src_char_w2i))
 
       trg_w2i = self.trg_w2i_list[i]
       for trg_tok in trg_tokens:
@@ -293,30 +394,57 @@ class DataUtil(object):
         # calculate char ngram emb for trg_tok
         if self.hparams.char_ngram_n > 0:
           ngram_counts = self._get_ngram_counts(trg_tok, self.trg_char_i2w, self.trg_char_w2i, self.hparams.char_ngram_n)
-          emb = np.zeros(self.trg_char_vsize)
-          emb[np.array(list(ngram_counts.keys()))] = list(ngram_counts.values())
-          trg_char_emb.append(torch.FloatTensor(emb.tolist()))
+          trg_char_kv.append(ngram_counts)
+        elif self.hparams.char_input:
+          trg_char.append(self._get_char(trg_tok, self.trg_char_i2w, self.trg_char_w2i))
 
       src_indices.append(self.hparams.eos_id)
       trg_indices.append(self.hparams.eos_id)
       src_data.append(src_indices)
       trg_data.append(trg_indices)
       if self.hparams.char_ngram_n > 0:
-        src_char_emb.append(torch.zeros(self.src_char_vsize)) 
-        trg_char_emb.append(torch.zeros(self.trg_char_vsize))
-        src_char_emb_list.append(src_char_emb)
-        trg_char_emb_list.append(trg_char_emb)
+        src_char_kv.append({0:0})
+        trg_char_kv.append({0:0})
+        src_char_kv_data.append(src_char_kv)
+        trg_char_kv_data.append(trg_char_kv)
+      elif self.hparams.char_input:
+        src_char.append([self.hparams.pad_id])
+        trg_char.append([self.hparams.pad_id])
+        src_char_data.append(src_char)
+        trg_char_data.append(trg_char)
 
       line_count += 1
       if line_count % 10000 == 0:
         print("processed {} lines".format(line_count))
     print("src_unk={}, trg_unk={}".format(src_unk_count, trg_unk_count))
     assert len(src_data) == len(trg_data)
-    if self.hparams.char_ngram_n > 0:
-      return src_data, trg_data, src_char_emb_list, trg_char_emb_list
+    if self.hparams.char_ngram_n:
+      return src_data, trg_data, src_char_kv_data, trg_char_kv_data
+    elif self.hparams.char_input:
+      return src_data, trg_data, src_char_data, trg_char_data
     return src_data, trg_data, None, None
 
-  def _build_char_vocab(self, lines, n, max_char_vocab_size=None):
+  def _build_char_vocab(self, lines):
+    i2w = ['<pad>', '<unk>', '<s>', '<\s>']
+    w2i = {'<pad>': 0, '<unk>':1, '<s>':2, '<\s>':3}
+    assert i2w[self.hparams.pad_id] == '<pad>'
+    assert i2w[self.hparams.unk_id] == '<unk>'
+    assert i2w[self.hparams.bos_id] == '<s>'
+    assert i2w[self.hparams.eos_id] == '<\s>'
+    assert w2i['<pad>'] == self.hparams.pad_id
+    assert w2i['<unk>'] == self.hparams.unk_id
+    assert w2i['<s>'] == self.hparams.bos_id
+    assert w2i['<\s>'] == self.hparams.eos_id
+    for line in lines:
+      words = line.split()
+      for w in words:
+        for c in w:
+          if c not in w2i:
+            w2i[c] = len(w2i)
+            i2w.append(c)
+    return i2w, w2i
+
+  def _build_char_ngram_vocab(self, lines, n, max_char_vocab_size=None):
     i2w = ['<unk>']
     w2i = {}
     w2i['<unk>'] = 0
@@ -332,6 +460,7 @@ class DataUtil(object):
               i2w.append(char)
               if max_char_vocab_size and len(i2w) >= max_char_vocab_size: 
                 return i2w, w2i
+
     return i2w, w2i
 
   def _build_vocab(self, vocab_file, max_vocab_size=None):

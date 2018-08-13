@@ -75,6 +75,11 @@ parser.add_argument("--reset_hparams", action="store_true", help="whether to rel
 
 parser.add_argument("--char_ngram_n", type=int, default=0, help="use char_ngram embedding")
 parser.add_argument("--max_char_vocab_size", type=int, default=None, help="char vocab size")
+
+parser.add_argument("--char_input", action="store_true", help="whether to prepare character inputs")
+parser.add_argument("--char_comb", type=str, default="add", help="[cat|add]")
+
+parser.add_argument("--char_temp", type=float, default=None, help="temperature to combine word and char emb")
 args = parser.parse_args()
 
 def eval(model, data, crit, step, hparams, eval_bleu=False,
@@ -102,7 +107,7 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
     gc.collect()
 
     # next batch
-    x_valid, x_mask, x_count, x_len, y_valid, y_mask, y_count, y_len, batch_size, end_of_epoch = data.next_dev(dev_batch_size=valid_batch_size)
+    x_valid, x_mask, x_count, x_len, y_valid, y_mask, y_count, y_len, batch_size, end_of_epoch, x_valid_char_sparse, y_valid_char_sparse = data.next_dev(dev_batch_size=valid_batch_size)
     #print(x_valid)
     #print(x_mask)
     #print(y_valid)
@@ -114,13 +119,13 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
 
     logits = model.forward(
       x_valid, x_mask, x_len,
-      y_valid[:,:-1], y_mask[:,:-1], y_len)
+      y_valid[:,:-1], y_mask[:,:-1], y_len, x_valid_char_sparse, y_valid_char_sparse)
     logits = logits.view(-1, hparams.trg_vocab_size)
     labels = y_valid[:,1:].contiguous().view(-1)
     val_loss, val_acc = get_performance(crit, logits, labels, hparams)
     n_batches += 1
-    valid_loss += val_loss.data[0]
-    valid_acc += val_acc.data[0]
+    valid_loss += val_loss.item()
+    valid_acc += val_acc.item()
     # print("{0:<5d} / {1:<5d}".format(val_acc.data[0], y_count))
     if end_of_epoch:
       break
@@ -203,7 +208,10 @@ def train():
       merge_bpe=args.merge_bpe,
       load_model=args.load_model,
       char_ngram_n=args.char_ngram_n,
-      max_char_vocab_size=args.max_char_vocab_size
+      max_char_vocab_size=args.max_char_vocab_size,
+      char_input=args.char_input,
+      char_comb=args.char_comb,
+      char_temp=args.char_temp,
     )
   data = DataUtil(hparams=hparams)
   # build or load model
@@ -213,6 +221,8 @@ def train():
     model_file_name = os.path.join(args.output_dir, "model.pt")
     print("Loading model from '{0}'".format(model_file_name))
     model = torch.load(model_file_name)
+    if not hasattr(model, 'data'):
+      model.data = data
 
     optim_file_name = os.path.join(args.output_dir, "optimizer.pt")
     print("Loading optimizer from {}".format(optim_file_name))
@@ -225,7 +235,7 @@ def train():
     extra_file_name = os.path.join(args.output_dir, "extra.pt")
     step, best_val_ppl, best_val_bleu, cur_attempt, lr = torch.load(extra_file_name)
   else:
-    model = Seq2Seq(hparams=hparams)
+    model = Seq2Seq(hparams=hparams, data=data)
     if args.init_type == "uniform":
       print("initialize uniform with range {}".format(args.init_range))
       for p in model.parameters():
@@ -260,7 +270,7 @@ def train():
   model.train()
   #i = 0
   while True:
-    x_train, x_mask, x_count, x_len, y_train, y_mask, y_count, y_len, batch_size = data.next_train()
+    x_train, x_mask, x_count, x_len, y_train, y_mask, y_count, y_len, batch_size, x_train_char_sparse, y_train_char_sparse = data.next_train()
     #print("x_train", x_train.size())
     #print("y_train", y_train.size())
     #print(i)
@@ -274,18 +284,18 @@ def train():
     #exit(0)
     optim.zero_grad()
     target_words += (y_count - batch_size)
-    logits = model.forward(x_train, x_mask, x_len, y_train[:,:-1], y_mask[:,:-1], y_len)
+    logits = model.forward(x_train, x_mask, x_len, y_train[:,:-1], y_mask[:,:-1], y_len, x_train_char_sparse, y_train_char_sparse)
     logits = logits.view(-1, hparams.trg_vocab_size)
     labels = y_train[:,1:].contiguous().view(-1)
     #print(labels)
     tr_loss, tr_acc = get_performance(crit, logits, labels, hparams)
-    total_loss += tr_loss.data[0]
-    total_corrects += tr_acc.data[0]
+    total_loss += tr_loss.item()
+    total_corrects += tr_acc.item()
     step += 1
 
     tr_loss.div_(batch_size)
     tr_loss.backward()
-    grad_norm = torch.nn.utils.clip_grad_norm(model.parameters(), args.clip_grad)
+    grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad)
     optim.step()
     # clean up GPU memory
     if step % args.clean_mem_every == 0:
@@ -298,7 +308,7 @@ def train():
       log_string = "ep={0:<3d}".format(epoch)
       log_string += " steps={0:<6.2f}".format(step / 1000)
       log_string += " lr={0:<9.7f}".format(lr)
-      log_string += " loss={0:<7.2f}".format(tr_loss.data[0])
+      log_string += " loss={0:<7.2f}".format(tr_loss.item())
       log_string += " |g|={0:<5.2f}".format(grad_norm)
 
       log_string += " ppl={0:<8.2f}".format(np.exp(total_loss / target_words))
