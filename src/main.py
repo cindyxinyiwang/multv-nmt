@@ -54,11 +54,16 @@ parser.add_argument("--src_vocab_list", type=str, default=None, help="source voc
 parser.add_argument("--trg_vocab_list", type=str, default=None, help="target vocab file")
 parser.add_argument("--test_src_file", type=str, default=None, help="source test file")
 parser.add_argument("--test_trg_file", type=str, default=None, help="target test file")
+parser.add_argument("--src_char_vocab_from", type=str, default=None, help="source char vocab file")
+parser.add_argument("--trg_char_vocab_from", type=str, default=None, help="source char vocab file")
+parser.add_argument("--src_vocab_size", type=int, default=None, help="src vocab size")
+parser.add_argument("--trg_vocab_size", type=int, default=None, help="trg vocab size")
 
 parser.add_argument("--batch_size", type=int, default=32, help="batch_size")
 parser.add_argument("--valid_batch_size", type=int, default=20, help="batch_size")
 parser.add_argument("--batcher", type=str, default="sent", help="sent|word. Batch either by number of words or number of sentences")
 parser.add_argument("--n_train_steps", type=int, default=100000, help="n_train_steps")
+parser.add_argument("--n_train_epochs", type=int, default=0, help="n_train_epochs")
 parser.add_argument("--dropout", type=float, default=0., help="probability of dropping")
 parser.add_argument("--lr", type=float, default=0.001, help="learning rate")
 parser.add_argument("--lr_dec", type=float, default=0.5, help="learning rate decay")
@@ -83,6 +88,8 @@ parser.add_argument("--char_comb", type=str, default="add", help="[cat|add]")
 parser.add_argument("--char_temp", type=float, default=None, help="temperature to combine word and char emb")
 
 parser.add_argument("--pretrained_model", type=str, default=None, help="location of pretrained model")
+
+parser.add_argument("--src_char_only", action="store_true", help="only use char emb on src")
 args = parser.parse_args()
 
 def eval(model, data, crit, step, hparams, eval_bleu=False,
@@ -132,7 +139,7 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
   # BLEU eval
   if eval_bleu:
     x_valid = data.dev_x
-    x_dev_char, y_dev_char = data.get_trans_char(data.dev_x_char_kv), data.get_trans_char(data.dev_y_char_kv)
+    x_dev_char, y_dev_char = data.get_trans_char(data.dev_x_char_kv, data.src_char_vsize), data.get_trans_char(data.dev_y_char_kv, data.trg_char_vsize)
     hyps = model.translate(
           x_valid, beam_size=args.beam_size, max_len=args.max_trans_len, poly_norm_m=args.poly_norm_m, x_train_char=x_dev_char, y_train_char=y_dev_char)
     #print(x_valid)
@@ -188,6 +195,8 @@ def train():
       dev_trg_file=args.dev_trg_file,
       src_vocab_list=args.src_vocab_list,
       trg_vocab_list=args.trg_vocab_list,
+      src_vocab_size=args.src_vocab_size,
+      trg_vocab_size=args.trg_vocab_size,
       max_len=args.max_len,
       n_train_sents=args.n_train_sents,
       cuda=args.cuda,
@@ -213,6 +222,9 @@ def train():
       char_input=args.char_input,
       char_comb=args.char_comb,
       char_temp=args.char_temp,
+      src_char_vocab_from=args.src_char_vocab_from,
+      trg_char_vocab_from=args.trg_char_vocab_from,
+      src_char_only=args.src_char_only,
     )
   data = DataUtil(hparams=hparams)
   # build or load model
@@ -332,8 +344,8 @@ def train():
     # clean up GPU memory
     if step % args.clean_mem_every == 0:
       gc.collect()
+    epoch = step // data.n_train_batches
     if step % args.log_every == 0:
-      epoch = step // data.n_train_batches
       curr_time = time.time()
       since_start = (curr_time - start_time) / 60.0
       elapsed = (curr_time - log_start_time) / 60.0
@@ -381,6 +393,8 @@ def train():
       total_word_loss = total_rule_loss = total_eos_loss = 0
     if args.patience >= 0:
       if cur_attempt > args.patience: break
+    elif args.n_train_epochs > 0:
+      if epoch >= args.n_train_epochs: break
     else:
       if step > args.n_train_steps: break 
 

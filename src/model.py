@@ -178,9 +178,10 @@ class Encoder(nn.Module):
 
     self.hparams = hparams
     #print("d_word_vec", self.hparams.d_word_vec)
-    self.word_emb = nn.Embedding(self.hparams.src_vocab_size,
-                                 self.hparams.d_word_vec,
-                                 padding_idx=hparams.pad_id)
+    if not self.hparams.src_char_only:
+      self.word_emb = nn.Embedding(self.hparams.src_vocab_size,
+                                   self.hparams.d_word_vec,
+                                   padding_idx=hparams.pad_id)
 
     if self.hparams.char_ngram_n > 0:
       self.char_emb_proj = nn.Linear(self.hparams.src_char_vsize, self.hparams.d_word_vec, bias=False)
@@ -206,7 +207,8 @@ class Encoder(nn.Module):
     
     self.dropout = nn.Dropout(self.hparams.dropout)
     if self.hparams.cuda:
-      self.word_emb = self.word_emb.cuda()
+      if not self.hparams.src_char_only:
+        self.word_emb = self.word_emb.cuda()
       self.layer = self.layer.cuda()
       self.dropout = self.dropout.cuda()
       self.bridge = self.bridge.cuda()
@@ -224,8 +226,12 @@ class Encoder(nn.Module):
     batch_size, max_len = x_train.size()
     x_train = x_train.transpose(0, 1)
     # [batch_size, max_len, d_word_vec]
-    word_emb = self.word_emb(x_train)
-    word_emb = self.dropout(word_emb)
+    if self.hparams.src_char_only:
+      word_emb = Variable(torch.zeros(max_len, batch_size, self.hparams.d_word_vec), volatile=True)
+      if self.hparams.cuda: word_emb = word_emb.cuda()
+    else:
+      word_emb = self.word_emb(x_train)
+      word_emb = self.dropout(word_emb)
     if self.hparams.char_ngram_n > 0:
       for idx, x_char_sent in enumerate(x_train_char):
         emb = Variable(x_char_sent.to_dense(), requires_grad=False)
