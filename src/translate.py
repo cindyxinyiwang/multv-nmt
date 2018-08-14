@@ -55,6 +55,8 @@ model.eval()
 
 hparams_file_name = os.path.join(args.model_dir, "hparams.pt")
 train_hparams = torch.load(hparams_file_name)
+for k, v in train_hparams.__dict__.items():
+  setattr(hparams, k) = v
 
 out_file = os.path.join(args.model_dir, args.out_file)
 print("writing translation to " + out_file)
@@ -77,21 +79,25 @@ hparams = TranslationHparams(
   train_src_file_list=train_hparams.train_src_file_list,
   train_trg_file_list=train_hparams.train_trg_file_list,
 )
-if hasattr(train_hparams, 'src_char_vsize'):
-  hparams.src_char_vsize = train_hparams.src_char_vsize
-if hasattr(train_hparams, 'trg_char_vsize'):
-  hparams.trg_char_vsize = train_hparams.trg_char_vsize
-if hasattr(train_hparams, 'char_comb'):
-  hparams.char_comb = train_hparams.char_comb
+#if hasattr(train_hparams, 'src_char_vsize'):
+#  hparams.src_char_vsize = train_hparams.src_char_vsize
+#if hasattr(train_hparams, 'trg_char_vsize'):
+#  hparams.trg_char_vsize = train_hparams.trg_char_vsize
+#if hasattr(train_hparams, 'char_comb'):
+#  hparams.char_comb = train_hparams.char_comb
 if hasattr(train_hparams, 'char_temp'):
   model.hparams.char_temp = train_hparams.char_temp
 else:
   model.hparams.char_temp = None
+#if hasattr(train_hparams, 'src_char_vocab_from'):
+#  hparams.src_char_vocab_from = train_hparams.src_char_vocab_from
+#if hasattr(train_hparams, 'trg_char_vocab_from'):
+#  hparams.trg_char_vocab_from = train_hparams.trg_char_vocab_from
+if hasattr(train_hparams, 'src_char_only'):
+  hparams.src_char_only = train_hparams.src_char_only
+else:
+  hparams.src_char_only = False
 
-#hparams.add_param("pad_id", model.hparams.pad_id)
-#hparams.add_param("bos_id", model.hparams.bos_id)
-#hparams.add_param("eos_id", model.hparams.eos_id)
-#hparams.add_param("unk_id", model.hparams.unk_id)
 model.hparams.cuda = hparams.cuda
 data = DataUtil(hparams=hparams, decode=True)
 filts = [model.hparams.pad_id, model.hparams.eos_id, model.hparams.bos_id]

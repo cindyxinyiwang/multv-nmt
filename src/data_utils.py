@@ -12,29 +12,32 @@ class DataUtil(object):
     self.src_i2w_list = []
     self.src_w2i_list = []
     for v_file in hparams.src_vocab_list:
-      v_file = os.path.join(self.hparams.data_path, v_file)
+      #v_file = os.path.join(self.hparams.data_path, v_file)
       i2w, w2i = self._build_vocab(v_file, max_vocab_size=self.hparams.src_vocab_size)   
       self.src_i2w_list.append(i2w)
       self.src_w2i_list.append(w2i)
-      if self.hparams.src_vocab_size is None:
-        self.hparams.src_vocab_size = len(i2w)
-        print("setting src_vocab_size to {}...".format(self.hparams.src_vocab_size))
+      #if self.hparams.src_vocab_size is None:
+      self.hparams.src_vocab_size = len(i2w)
+      print("setting src_vocab_size to {}...".format(self.hparams.src_vocab_size))
 
     self.trg_i2w_list = []
     self.trg_w2i_list = []
     for v_file in hparams.trg_vocab_list:
-      v_file = os.path.join(self.hparams.data_path, v_file)
+      #v_file = os.path.join(self.hparams.data_path, v_file)
       i2w, w2i = self._build_vocab(v_file, max_vocab_size=self.hparams.trg_vocab_size)   
       self.trg_i2w_list.append(i2w)
       self.trg_w2i_list.append(w2i)
-      if self.hparams.trg_vocab_size is None:
-        self.hparams.trg_vocab_size = len(i2w)
-        print("setting trg_vocab_size to {}...".format(self.hparams.trg_vocab_size))
+      #if self.hparams.trg_vocab_size is None:
+      self.hparams.trg_vocab_size = len(i2w)
+      print("setting trg_vocab_size to {}...".format(self.hparams.trg_vocab_size))
     
     if self.hparams.char_ngram_n > 0 or self.hparams.char_input:
-      src, trg = self.hparams.train_src_file_list[0], self.hparams.train_trg_file_list[0]
-      src = os.path.join(self.hparams.data_path, src)
-      trg = os.path.join(self.hparams.data_path, trg)
+      if hasattr(self.hparams, "src_char_vocab_from") and self.hparams.src_char_vocab_from:
+        src, trg = self.hparams.src_char_vocab_from, self.hparams.trg_char_vocab_from
+      else:
+        src, trg = self.hparams.train_src_file_list[0], self.hparams.train_trg_file_list[0]
+        #src = os.path.join(self.hparams.data_path, src)
+        #trg = os.path.join(self.hparams.data_path, trg)
       print("build char vocab from {} and {}".format(src, trg))
       with open(src, 'r', encoding='utf-8') as f:
         src_lines = f.read().split('\n')
@@ -62,8 +65,8 @@ class DataUtil(object):
       i, self.train_size = 0, 0
       self.n_train_batches = None
       for s_file,t_file in zip(self.hparams.train_src_file_list, self.hparams.train_trg_file_list):
-        s_file = os.path.join(self.hparams.data_path, s_file)
-        t_file = os.path.join(self.hparams.data_path, t_file)
+        #s_file = os.path.join(self.hparams.data_path, s_file)
+        #t_file = os.path.join(self.hparams.data_path, t_file)
         train_x, train_y, x_char_kv, y_char_kv = self._build_parallel(s_file, t_file, i)
         self.train_x.extend(train_x)
         self.train_y.extend(train_y)
@@ -72,52 +75,26 @@ class DataUtil(object):
           self.train_y_char_kv.extend(y_char_kv)
         i += 1
         self.train_size += len(train_x)
-      if not self.hparams.load_model:
-        dev_src_file = os.path.join(self.hparams.data_path, self.hparams.dev_src_file)
-        dev_trg_file = os.path.join(self.hparams.data_path, self.hparams.dev_trg_file)
-      else:
-        dev_src_file = self.hparams.dev_src_file
-        dev_trg_file = self.hparams.dev_trg_file
+      dev_src_file = self.hparams.dev_src_file
+      dev_trg_file = self.hparams.dev_trg_file
       self.dev_x, self.dev_y, self.dev_x_char_kv, self.dev_y_char_kv = self._build_parallel(dev_src_file, dev_trg_file, 0, is_train=False)
       self.dev_size = len(self.dev_x)
       self.reset_train()
       self.dev_index = 0
       #self.dev_x_char, self.dev_y_char = self.get_trans_char(self.dev_x_char_kv), self.get_trans_char(self.dev_y_char_kv)
     else:
-      test_src_file = os.path.join(self.hparams.data_path, self.hparams.test_src_file)
-      test_trg_file = os.path.join(self.hparams.data_path, self.hparams.test_trg_file)
+      #test_src_file = os.path.join(self.hparams.data_path, self.hparams.test_src_file)
+      #test_trg_file = os.path.join(self.hparams.data_path, self.hparams.test_trg_file)
       self.test_x, self.test_y, self.test_x_char_kv, self.test_y_char_kv = self._build_parallel(test_src_file, test_trg_file, 0, is_train=False)
       self.test_size = len(self.test_x)
       self.test_index = 0
       if self.hparams.char_ngram_n > 0:
-        self.test_x_char = self.get_trans_char(self.test_x_char_kv)
-        #for kvs in self.test_x_char_kv:
-        #  key, val = [], []
-        #  sent_sparse = []
-        #  for i, kv in enumerate(kvs):
-        #    key.append(torch.LongTensor([[i for _ in range(len(kv.keys()))], list(kv.keys())]))
-        #    val.extend(list(kv.values()))
-        #  key = torch.cat(key, dim=1)
-        #  val = torch.FloatTensor(val)
-        #  sent_sparse = torch.sparse.FloatTensor(key, val, torch.Size([len(kvs), self.hparams.src_char_vsize]))
-        #  # (batch_size, max_len, char_dim)
-        #  self.test_x_char.append([sent_sparse])
-        self.test_y_char = self.get_trans_char(self.test_y_char_kv)
-        #for kvs in self.test_y_char_kv:
-        #  key, val = [], []
-        #  sent_sparse = []
-        #  for i, kv in enumerate(kvs):
-        #    key.append(torch.LongTensor([[i for _ in range(len(kv.keys()))], list(kv.keys())]))
-        #    val.extend(list(kv.values()))
-        #  key = torch.cat(key, dim=1)
-        #  val = torch.FloatTensor(val)
-        #  sent_sparse = torch.sparse.FloatTensor(key, val, torch.Size([len(kvs), self.hparams.trg_char_vsize]))
-        #  # (batch_size, max_len, char_dim)
-        #  self.test_y_char.append([sent_sparse])
+        self.test_x_char = self.get_trans_char(self.test_x_char_kv, self.src_char_vsize)
+        self.test_y_char = self.get_trans_char(self.test_y_char_kv, self.trg_char_vsize)
       else:
         self.test_x_char, self.test_y_char = None, None
   
-  def get_trans_char(self, char_raw):
+  def get_trans_char(self, char_raw, char_vsize):
     ret_char = []
     if self.hparams.char_ngram_n > 0:
       for kvs in char_raw:
@@ -128,7 +105,7 @@ class DataUtil(object):
           val.extend(list(kv.values()))
         key = torch.cat(key, dim=1)
         val = torch.FloatTensor(val)
-        sent_sparse = torch.sparse.FloatTensor(key, val, torch.Size([len(kvs), self.hparams.src_char_vsize]))
+        sent_sparse = torch.sparse.FloatTensor(key, val, torch.Size([len(kvs), char_vsize]))
         # (batch_size, max_len, char_dim)
         ret_char.append([sent_sparse])
     return ret_char

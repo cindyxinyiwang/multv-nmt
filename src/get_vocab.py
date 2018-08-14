@@ -8,7 +8,7 @@ for line in sys.stdin:
       vocab[t] = 0
     vocab[t] += 1
 
-vocab = sorted(vocab.items(), key=lambda kv: kv[1])
+vocab = sorted(vocab.items(), key=lambda kv: kv[1], reverse=True)
 print("<pad>")
 print("<unk>")
 print("<s>")
