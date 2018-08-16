@@ -53,6 +53,10 @@ class DataUtil(object):
       setattr(self.hparams, 'src_char_vsize', self.src_char_vsize)
       setattr(self.hparams, 'trg_char_vsize', self.trg_char_vsize)
       print("src_char_vsize={} trg_char_vsize={}".format(self.src_char_vsize, self.trg_char_vsize))
+    else:
+      self.src_char_vsize, self.trg_char_vsize = None, None
+      setattr(self.hparams, 'src_char_vsize', None)
+      setattr(self.hparams, 'trg_char_vsize', None)
 
     if not self.hparams.decode:
       assert len(self.src_i2w_list) == len(self.hparams.train_src_file_list)
@@ -85,6 +89,8 @@ class DataUtil(object):
     else:
       #test_src_file = os.path.join(self.hparams.data_path, self.hparams.test_src_file)
       #test_trg_file = os.path.join(self.hparams.data_path, self.hparams.test_trg_file)
+      test_src_file = self.hparams.test_src_file
+      test_trg_file = self.hparams.test_trg_file
       self.test_x, self.test_y, self.test_x_char_kv, self.test_y_char_kv = self._build_parallel(test_src_file, test_trg_file, 0, is_train=False)
       self.test_size = len(self.test_x)
       self.test_index = 0
@@ -193,7 +199,10 @@ class DataUtil(object):
 
     if self.train_index >= self.n_train_batches:
       self.reset_train()
-    return x_train, x_mask, x_count, x_len, y_train, y_mask, y_count, y_len, batch_size, x_train_char, y_train_char
+      eop = True
+    else:
+      eop = False
+    return x_train, x_mask, x_count, x_len, y_train, y_mask, y_count, y_len, batch_size, x_train_char, y_train_char, eop
 
   def next_dev(self, dev_batch_size=10):
     start_index = self.dev_index
@@ -349,11 +358,15 @@ class DataUtil(object):
     src_data = []
     trg_data = []
     line_count = 0
+    skip_line_count = 0
     for src_line, trg_line in zip(src_lines, trg_lines):
       src_tokens = src_line.split()
       trg_tokens = trg_line.split()
-      if is_train and not src_tokens or not trg_tokens: continue
+      if is_train and not src_tokens or not trg_tokens: 
+        skip_line_count += 1
+        continue
       if is_train and not self.hparams.decode and self.hparams.max_len and len(src_tokens) > self.hparams.max_len and len(trg_tokens) > self.hparams.max_len:
+        skip_line_count += 1
         continue
 
       src_indices, trg_indices = [self.hparams.bos_id], [self.hparams.bos_id] 
@@ -411,6 +424,7 @@ class DataUtil(object):
         print("processed {} lines".format(line_count))
     print("src_unk={}, trg_unk={}".format(src_unk_count, trg_unk_count))
     assert len(src_data) == len(trg_data)
+    print("lines={}, skipped_lines={}".format(len(src_data), skip_line_count))
     if self.hparams.char_ngram_n:
       return src_data, trg_data, src_char_kv_data, trg_char_kv_data
     elif self.hparams.char_input:
@@ -463,6 +477,10 @@ class DataUtil(object):
     with open(vocab_file, 'r', encoding='utf-8') as f:
       for line in f:
         w = line.strip()
+        if i == 0 and w != "<pad>":
+          i2w = ['<pad>', '<unk>', '<s>', '<\s>']
+          w2i = {'<pad>': 0, '<unk>':1, '<s>':2, '<\s>':3}
+          i = 4
         w2i[w] = i
         i2w.append(w)
         i += 1

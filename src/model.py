@@ -270,6 +270,10 @@ class Encoder(nn.Module):
     dec_init_cell = self.bridge(torch.cat([ct[0], ct[1]], 1))
     dec_init_state = F.tanh(dec_init_cell)
     dec_init = (dec_init_state, dec_init_cell)
+
+    #dec_init_cell = torch.cat([ct[0], ct[1]], 1)
+    #dec_init_state = F.tanh(dec_init_cell)
+    #dec_init = (dec_init_state, dec_init_cell)
     return enc_output, dec_init
 
 class Decoder(nn.Module):
@@ -281,6 +285,7 @@ class Decoder(nn.Module):
     self.attention = MlpAttn(hparams)
     # transform [ctx, h_t] to readout state vectors before softmax
     self.ctx_to_readout = nn.Linear(hparams.d_model * 2 + hparams.d_model, hparams.d_model, bias=False)
+    #self.ctx_to_readout = nn.Linear(hparams.d_model + hparams.d_model, hparams.d_model, bias=False)
     self.readout = nn.Linear(hparams.d_model, hparams.trg_vocab_size, bias=False)
     self.word_emb = nn.Embedding(self.hparams.trg_vocab_size,
                                  self.hparams.d_word_vec,
@@ -301,6 +306,7 @@ class Decoder(nn.Module):
       d_word_vec = self.hparams.d_word_vec * 2
 
     # input: [y_t-1, input_feed]
+    #self.layer = nn.LSTMCell(d_word_vec + hparams.d_model, 
     self.layer = nn.LSTMCell(d_word_vec + hparams.d_model * 2, 
                              hparams.d_model)
     self.dropout = nn.Dropout(hparams.dropout)
@@ -321,7 +327,7 @@ class Decoder(nn.Module):
     assert batch_size_x == batch_size
     hidden = dec_init 
     input_feed = Variable(torch.zeros(batch_size, self.hparams.d_model * 2), requires_grad=False)
-    #input_feed = Variable(dec_init[1][1].data.new(batch_size, self.hparams.d_model).zero_(), requires_grad=False)
+    #input_feed = Variable(torch.zeros(batch_size, self.hparams.d_model), requires_grad=False)
     if self.hparams.cuda:
       input_feed = input_feed.cuda()
     # [batch_size, y_len, d_word_vec]
@@ -429,11 +435,9 @@ class Seq2Seq(nn.Module):
 
   def forward(self, x_train, x_mask, x_len, y_train, y_mask, y_len, x_train_char_sparse=None, y_train_char_sparse=None):
     # [batch_size, x_len, d_model * 2]
-    #print("x_train", x_train)
-    #print("x_mask", x_mask)
-    #print("x_len", x_len)
     x_enc, dec_init = self.encoder(x_train, x_len, x_train_char_sparse)
     x_enc_k = self.enc_to_k(x_enc)
+    #x_enc_k = x_enc
     # [batch_size, y_len-1, trg_vocab_size]
     logits = self.decoder(x_enc, x_enc_k, dec_init, x_mask, y_train, y_mask, y_train_char_sparse)
     return logits
@@ -458,9 +462,11 @@ class Seq2Seq(nn.Module):
     x_train = x_train.unsqueeze(0)
     x_enc, dec_init = self.encoder(x_train, x_len, x_train_char)
     x_enc_k = self.enc_to_k(x_enc)
+    #x_enc_k = x_enc
     length = 0
     completed_hyp = []
     input_feed = Variable(torch.zeros(1, self.hparams.d_model * 2), requires_grad=False)
+    #input_feed = Variable(torch.zeros(1, self.hparams.d_model), requires_grad=False)
     if self.hparams.cuda:
       input_feed = input_feed.cuda()
     active_hyp = [Hyp(state=dec_init, y=[self.hparams.bos_id], ctx_tm1=input_feed, score=0.)]
