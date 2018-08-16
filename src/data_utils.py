@@ -124,7 +124,7 @@ class DataUtil(object):
       w2i, i2w, vsize = self.src_char_w2i, self.src_char_i2w, self.hparams.src_char_vsize
       word = self.src_i2w_list[0][word_idx]
     if self.hparams.char_ngram_n > 0:
-      if word_idx == self.hparams.bos_id or word_idx == self.hparams.eos_id or word_idx == self.hparams.pad_id:
+      if word_idx == self.hparams.bos_id or word_idx == self.hparams.eos_id or word_idx == self.hparams.pad_id or word_idx == self.hparams.unk_id:
         kv = {0:0}
       else:
         kv = self._get_ngram_counts(word, i2w, w2i, self.hparams.char_ngram_n)
