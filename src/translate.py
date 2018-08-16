@@ -55,44 +55,31 @@ model.eval()
 
 hparams_file_name = os.path.join(args.model_dir, "hparams.pt")
 train_hparams = torch.load(hparams_file_name)
+hparams = TranslationHparams()
 for k, v in train_hparams.__dict__.items():
-  setattr(hparams, k) = v
+  setattr(hparams, k, v)
 
 out_file = os.path.join(args.model_dir, args.out_file)
 print("writing translation to " + out_file)
-hparams = TranslationHparams(
-  data_path=args.data_path,
-  src_vocab_list=args.src_vocab_list,
-  trg_vocab_list=args.trg_vocab_list,
-  test_src_file = args.test_src_file,
-  test_trg_file = args.test_trg_file,
-  cuda=args.cuda,
-  beam_size=args.beam_size,
-  max_len=args.max_len,
-  batch_size=args.batch_size,
-  merge_bpe=args.merge_bpe,
-  out_file=out_file,
-  nbest=args.nbest,
-  decode=True,
-  char_ngram_n=train_hparams.char_ngram_n,
-  max_char_vocab_size=train_hparams.max_char_vocab_size,
-  train_src_file_list=train_hparams.train_src_file_list,
-  train_trg_file_list=train_hparams.train_trg_file_list,
-)
-#if hasattr(train_hparams, 'src_char_vsize'):
-#  hparams.src_char_vsize = train_hparams.src_char_vsize
-#if hasattr(train_hparams, 'trg_char_vsize'):
-#  hparams.trg_char_vsize = train_hparams.trg_char_vsize
-#if hasattr(train_hparams, 'char_comb'):
-#  hparams.char_comb = train_hparams.char_comb
+
+#hparams.data_path=args.data_path
+#hparams.src_vocab_list=args.src_vocab_list
+#hparams.trg_vocab_list=args.trg_vocab_list
+hparams.test_src_file = args.test_src_file
+hparams.test_trg_file = args.test_trg_file
+hparams.cuda=args.cuda
+hparams.beam_size=args.beam_size
+hparams.max_len=args.max_len
+hparams.batch_size=args.batch_size
+hparams.merge_bpe=args.merge_bpe
+hparams.out_file=out_file
+hparams.nbest=args.nbest
+hparams.decode=True
+
 if hasattr(train_hparams, 'char_temp'):
   model.hparams.char_temp = train_hparams.char_temp
 else:
   model.hparams.char_temp = None
-#if hasattr(train_hparams, 'src_char_vocab_from'):
-#  hparams.src_char_vocab_from = train_hparams.src_char_vocab_from
-#if hasattr(train_hparams, 'trg_char_vocab_from'):
-#  hparams.trg_char_vocab_from = train_hparams.trg_char_vocab_from
 if hasattr(train_hparams, 'src_char_only'):
   hparams.src_char_only = train_hparams.src_char_only
 else:
@@ -105,7 +92,6 @@ filts = [model.hparams.pad_id, model.hparams.eos_id, model.hparams.bos_id]
 if not hasattr(model, 'data'):
   model.data = data
 
-#hparams.add_param("filtered_tokens", set(filts))
 if args.debug:
   hparams.add_param("target_word_vocab_size", data.target_word_vocab_size)
   hparams.add_param("target_rule_vocab_size", data.target_rule_vocab_size)

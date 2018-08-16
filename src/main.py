@@ -70,6 +70,7 @@ parser.add_argument("--lr_dec", type=float, default=0.5, help="learning rate dec
 parser.add_argument("--clip_grad", type=float, default=5., help="gradient clipping")
 parser.add_argument("--l2_reg", type=float, default=0., help="L2 regularization")
 parser.add_argument("--patience", type=int, default=-1, help="patience")
+parser.add_argument("--eval_end_epoch", action="store_true", help="whether to reload the hparams")
 
 parser.add_argument("--seed", type=int, default=19920206, help="random seed")
 
@@ -162,7 +163,7 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
   log_string += " val_ppl={0:<.2f}".format(val_ppl)
   if eval_bleu:
     out_file.close()
-    ref_file = os.path.join(hparams.data_path, args.dev_trg_ref)
+    ref_file = args.dev_trg_ref
     bleu_str = subprocess.getoutput(
       "./multi-bleu.perl {0} < {1}".format(ref_file, valid_hyp_file))
     log_string += "\n{}".format(bleu_str)
@@ -293,7 +294,7 @@ def train():
   model.train()
   #i = 0
   while True:
-    x_train, x_mask, x_count, x_len, y_train, y_mask, y_count, y_len, batch_size, x_train_char_sparse, y_train_char_sparse = data.next_train()
+    x_train, x_mask, x_count, x_len, y_train, y_mask, y_count, y_len, batch_size, x_train_char_sparse, y_train_char_sparse, eop = data.next_train()
     optim.zero_grad()
     target_words += (y_count - batch_size)
     logits = model.forward(x_train, x_mask, x_len, y_train[:,:-1], y_mask[:,:-1], y_len, x_train_char_sparse, y_train_char_sparse)
@@ -361,7 +362,17 @@ def train():
       log_string += " wpm(k)={0:<5.2f}".format(target_words / (1000 * elapsed))
       log_string += " time(min)={0:<5.2f}".format(since_start)
       print(log_string)
-    if step % args.eval_every == 0:
+
+    if args.eval_end_epoch:
+      if eop:
+        eval_now = True
+      else:
+        eval_now = False
+    elif step % args.eval_every == 0:
+      eval_now = True
+    else:
+      eval_now = False 
+    if eval_now:
       based_on_bleu = args.eval_bleu and best_val_ppl <= args.ppl_thresh
       val_ppl, val_bleu = eval(model, data, crit, step, hparams, eval_bleu=based_on_bleu, valid_batch_size=args.valid_batch_size, tr_logits=logits)	
       if based_on_bleu:
