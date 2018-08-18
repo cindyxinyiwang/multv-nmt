@@ -114,6 +114,19 @@ class DataUtil(object):
         sent_sparse = torch.sparse.FloatTensor(key, val, torch.Size([len(kvs), char_vsize]))
         # (batch_size, max_len, char_dim)
         ret_char.append([sent_sparse])
+    elif self.hparams.char_input:
+      #max_char_len = max([len(w) for sent in char_raw for w in sent])
+      for char_sent in char_raw:
+        max_char_len = max([len(w) for w in char_sent])
+        padded_char_sent = [s + ([self.hparams.pad_id]*(max_char_len-len(s))) for s in char_sent]
+        #padded_char_sent += [[pad_id]*max_char_len] * (max_len - len(padded_char_sent))
+        #padded_char_sents.append(padded_char_sent)
+        # (batch_size, max_len, max_char_len, char_dim)
+        #print(char_sent)
+        char_sent = Variable(torch.LongTensor(padded_char_sent).unsqueeze(0))
+        if self.hparams.cuda: char_sent = char_sent.cuda()
+        ret_char.append(char_sent)
+     
     return ret_char
 
   def get_char_emb(self, word_idx, is_trg=True):
@@ -133,6 +146,8 @@ class DataUtil(object):
       ret = torch.sparse.FloatTensor(key, val, torch.Size([1, vsize]))
     else:
       ret = self._get_char(word, i2w, w2i)
+      ret = Variable(torch.LongTensor(ret).unsqueeze(0))
+      if self.hparams.cuda: ret = ret.cuda()
     return ret
 
   def reset_train(self):
