@@ -358,13 +358,12 @@ class Encoder(nn.Module):
       enc_output: Tensor of size [batch_size, max_len, d_model].
     """
     batch_size, max_len = x_train.size()
-    x_train = x_train.transpose(0, 1)
     # [batch_size, max_len, d_word_vec]
     if self.hparams.src_char_only:
       word_emb = Variable(torch.zeros(max_len, batch_size, self.hparams.d_word_vec), volatile=True)
       if self.hparams.cuda: word_emb = word_emb.cuda()
     else:
-      word_emb = self.word_emb(x_train)
+      word_emb = self.word_emb(x_train.transpose(0, 1))
       word_emb = self.dropout(word_emb)
     if self.hparams.char_ngram_n > 0:
       for idx, x_char_sent in enumerate(x_train_char):
