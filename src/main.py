@@ -18,6 +18,11 @@ from utils import *
 
 parser = argparse.ArgumentParser(description="Neural MT")
 
+parser.add_argument("--semb", action="store_true", help="load an existing model")
+parser.add_argument("--dec_semb", action="store_true", help="load an existing model")
+parser.add_argument("--mlp_emb", action="store_true", help="whether to use mlp as emb query")
+parser.add_argument("--semb_vsize", type=int, default=5000, help="how many steps to write log")
+
 parser.add_argument("--load_model", action="store_true", help="load an existing model")
 parser.add_argument("--reset_output_dir", action="store_true", help="delete output directory if it exists")
 parser.add_argument("--output_dir", type=str, default="outputs", help="path to output directory")
@@ -226,6 +231,10 @@ def train():
       src_char_vocab_from=args.src_char_vocab_from,
       trg_char_vocab_from=args.trg_char_vocab_from,
       src_char_only=args.src_char_only,
+      semb=args.semb,
+      dec_semb=args.dec_semb,
+      semb_vsize=args.semb_vsize,
+      mlp_emb=args.mlp_emb,
     )
   data = DataUtil(hparams=hparams)
   # build or load model
@@ -269,7 +278,7 @@ def train():
     optim = torch.optim.Adam(trainable_params, lr=hparams.lr, weight_decay=hparams.l2_reg)
     #optim = torch.optim.Adam(trainable_params)
     step = 0
-    best_val_ppl = 50
+    best_val_ppl = 100
     best_val_bleu = 0
     cur_attempt = 0
     lr = hparams.lr
