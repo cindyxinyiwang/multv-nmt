@@ -567,7 +567,7 @@ class Seq2Seq(nn.Module):
   def __init__(self, hparams, data):
     super(Seq2Seq, self).__init__()
     self.decoder = Decoder(hparams)
-    if not hparams.dec_semb:
+    if hparams.semb and (not hparams.dec_semb):
       self.encoder = sembEncoder(hparams)
     elif hparams.dec_semb:
       self.encoder = sembEncoder(hparams, self.decoder.word_emb.weight)
