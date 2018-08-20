@@ -102,16 +102,20 @@ class QueryEmb(nn.Module):
     if emb is None:
       self.emb_matrix = nn.Parameter(torch.ones(self.hparams.d_word_vec, vocab_size).uniform_(-self.hparams.init_range, self.hparams.init_range), requires_grad=True)
     else:
+      self.vocab_size = emb.size(0)
       self.emb_matrix = emb.transpose(0, 1)
     self.softmax = nn.Softmax(dim=-1)
     self.hparams = hparams
     self.temp = np.power(hparams.d_model, 0.5)
-    if self.hparams.mlp_emb:
+    if self.hparams.semb == 'mlp':
       self.w_trg = nn.Linear(self.hparams.d_word_vec, self.hparams.d_word_vec)
       self.w_att = nn.Linear(self.hparams.d_word_vec, 1)
       if self.hparams.cuda:
         self.w_trg = self.w_trg.cuda()
         self.w_att = self.w_att.cuda()
+    elif self.hparams.semb == 'linear':
+      self.w_trg = nn.Linear(self.hparams.d_word_vec, self.vocab_size)
+      
  
   def forward(self, q):
     """ 
@@ -124,7 +128,7 @@ class QueryEmb(nn.Module):
     Return:
       attn: [batch_size, d_v]
     """
-    if self.hparams.mlp_emb:
+    if self.hparams.semb == 'mlp':
       max_len, d_q = q[0].size()
       # (batch_size, max_len, d_word_vec, vocab_size)
       ctx = []
@@ -137,7 +141,7 @@ class QueryEmb(nn.Module):
         c = torch.mm(attn_weight, self.emb_matrix.permute(1, 0))
         ctx.append(c)
       ctx = torch.stack(ctx, dim=0)
-    else:
+    elif self.hparams.semb == 'dot_prod':
       batch_size, max_len, d_q = q.size()
       # [batch_size, max_len, vocab_size]
       attn_weight = torch.bmm(q, self.emb_matrix.unsqueeze(0).expand(batch_size, -1, -1)) / self.temp
@@ -146,6 +150,11 @@ class QueryEmb(nn.Module):
       attn_weight = self.softmax(attn_weight)
       attn_weight = self.dropout(attn_weight)
       # [batch_size, max_len, d_emb_dim]
+      ctx = torch.bmm(attn_weight, self.emb_matrix.permute(1, 0).unsqueeze(0).expand(batch_size, -1, -1))
+    elif self.hparams.semb == 'linear':
+      batch_size, max_len, d_q = q.size()
+      # [batch_size, max_len, vocab_size]
+      attn_weight = self.w_trg(q)
       ctx = torch.bmm(attn_weight, self.emb_matrix.permute(1, 0).unsqueeze(0).expand(batch_size, -1, -1))
     return ctx
 
@@ -281,7 +290,7 @@ class sembEncoder(nn.Module):
         if self.hparams.cuda: emb = emb.cuda()
         x_char_sent = torch.tanh(self.char_emb_proj(emb))
         x_train_char[idx] = x_char_sent
-      if not self.hparams.mlp_emb:
+      if not self.hparams.semb == 'mlp':
         char_emb = torch.stack(x_train_char, dim=0)
       else:
         char_emb = x_train_char
@@ -558,7 +567,7 @@ class Seq2Seq(nn.Module):
   def __init__(self, hparams, data):
     super(Seq2Seq, self).__init__()
     self.decoder = Decoder(hparams)
-    if hparams.semb:
+    if not hparams.dec_semb:
       self.encoder = sembEncoder(hparams)
     elif hparams.dec_semb:
       self.encoder = sembEncoder(hparams, self.decoder.word_emb.weight)

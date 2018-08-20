@@ -16,9 +16,9 @@ class DataUtil(object):
       i2w, w2i = self._build_vocab(v_file, max_vocab_size=self.hparams.src_vocab_size)   
       self.src_i2w_list.append(i2w)
       self.src_w2i_list.append(w2i)
-      #if self.hparams.src_vocab_size is None:
-      self.hparams.src_vocab_size = len(i2w)
-      print("setting src_vocab_size to {}...".format(self.hparams.src_vocab_size))
+      if self.hparams.src_vocab_size is None:
+        self.hparams.src_vocab_size = len(i2w)
+        print("setting src_vocab_size to {}...".format(self.hparams.src_vocab_size))
 
     self.trg_i2w_list = []
     self.trg_w2i_list = []
@@ -27,9 +27,9 @@ class DataUtil(object):
       i2w, w2i = self._build_vocab(v_file, max_vocab_size=self.hparams.trg_vocab_size)   
       self.trg_i2w_list.append(i2w)
       self.trg_w2i_list.append(w2i)
-      #if self.hparams.trg_vocab_size is None:
-      self.hparams.trg_vocab_size = len(i2w)
-      print("setting trg_vocab_size to {}...".format(self.hparams.trg_vocab_size))
+      if self.hparams.trg_vocab_size is None:
+        self.hparams.trg_vocab_size = len(i2w)
+        print("setting trg_vocab_size to {}...".format(self.hparams.trg_vocab_size))
     
     if self.hparams.char_ngram_n > 0 or self.hparams.char_input:
       if hasattr(self.hparams, "src_char_vocab_from") and self.hparams.src_char_vocab_from:
@@ -46,9 +46,9 @@ class DataUtil(object):
       if self.hparams.char_ngram_n > 0:
         self.src_char_i2w, self.src_char_w2i = self._build_char_ngram_vocab(src_lines, self.hparams.char_ngram_n, self.hparams.max_char_vocab_size)
         self.trg_char_i2w, self.trg_char_w2i = self._build_char_ngram_vocab(trg_lines, self.hparams.char_ngram_n, self.hparams.max_char_vocab_size)
-      elif self.hparams.char_input:
-        self.src_char_i2w, self.src_char_w2i = self._build_char_vocab(src_lines)
-        self.trg_char_i2w, self.trg_char_w2i = self._build_char_vocab(trg_lines)
+      elif self.hparams.char_input > 0:
+        self.src_char_i2w, self.src_char_w2i = self._build_char_vocab(src_lines, self.hparams.char_input)
+        self.trg_char_i2w, self.trg_char_w2i = self._build_char_vocab(trg_lines, self.hparams.char_input)
       self.src_char_vsize, self.trg_char_vsize = len(self.src_char_i2w), len(self.trg_char_i2w)
       setattr(self.hparams, 'src_char_vsize', self.src_char_vsize)
       setattr(self.hparams, 'trg_char_vsize', self.trg_char_vsize)
@@ -57,7 +57,6 @@ class DataUtil(object):
       self.src_char_vsize, self.trg_char_vsize = None, None
       setattr(self.hparams, 'src_char_vsize', None)
       setattr(self.hparams, 'trg_char_vsize', None)
-
     if not self.hparams.decode:
       assert len(self.src_i2w_list) == len(self.hparams.train_src_file_list)
       assert len(self.trg_i2w_list) == len(self.hparams.train_trg_file_list)
@@ -144,8 +143,8 @@ class DataUtil(object):
       key = torch.LongTensor([[0 for _ in range(len(kv.keys()))], list(kv.keys())])
       val = torch.FloatTensor(list(kv.values()))
       ret = torch.sparse.FloatTensor(key, val, torch.Size([1, vsize]))
-    else:
-      ret = self._get_char(word, i2w, w2i)
+    elif self.hparams.char_input > 0:
+      ret = self._get_char(word, i2w, w2i, self.hparams.char_input)
       ret = Variable(torch.LongTensor(ret).unsqueeze(0))
       if self.hparams.cuda: ret = ret.cuda()
     return ret
@@ -335,9 +334,11 @@ class DataUtil(object):
     else:
       return padded_sentences, mask, count, lengths
 
-  def _get_char(self, word, i2w, w2i):
+  def _get_char(self, word, i2w, w2i, n=1):
     chars = []
-    for c in word:
+    for i in range(0, max(1, len(word)-n+1)):
+      j = min(len(word), i+n)
+      c = word[i:j]
       if c in w2i:
         chars.append(w2i[c])
       else:
@@ -402,8 +403,8 @@ class DataUtil(object):
         if self.hparams.char_ngram_n > 0:
           ngram_counts = self._get_ngram_counts(src_tok, self.src_char_i2w, self.src_char_w2i, self.hparams.char_ngram_n)
           src_char_kv.append(ngram_counts)
-        elif self.hparams.char_input:
-          src_char.append(self._get_char(src_tok, self.src_char_i2w, self.src_char_w2i))
+        elif self.hparams.char_input > 0:
+          src_char.append(self._get_char(src_tok, self.src_char_i2w, self.src_char_w2i, self.hparams.char_input))
 
       trg_w2i = self.trg_w2i_list[i]
       for trg_tok in trg_tokens:
@@ -416,8 +417,8 @@ class DataUtil(object):
         if self.hparams.char_ngram_n > 0:
           ngram_counts = self._get_ngram_counts(trg_tok, self.trg_char_i2w, self.trg_char_w2i, self.hparams.char_ngram_n)
           trg_char_kv.append(ngram_counts)
-        elif self.hparams.char_input:
-          trg_char.append(self._get_char(trg_tok, self.trg_char_i2w, self.trg_char_w2i))
+        elif self.hparams.char_input > 0:
+          trg_char.append(self._get_char(trg_tok, self.trg_char_i2w, self.trg_char_w2i, self.hparams.char_input))
 
       src_indices.append(self.hparams.eos_id)
       trg_indices.append(self.hparams.eos_id)
@@ -446,7 +447,7 @@ class DataUtil(object):
       return src_data, trg_data, src_char_data, trg_char_data
     return src_data, trg_data, None, None
 
-  def _build_char_vocab(self, lines):
+  def _build_char_vocab(self, lines, n=1):
     i2w = ['<pad>', '<unk>', '<s>', '<\s>']
     w2i = {'<pad>': 0, '<unk>':1, '<s>':2, '<\s>':3}
     assert i2w[self.hparams.pad_id] == '<pad>'
@@ -460,7 +461,10 @@ class DataUtil(object):
     for line in lines:
       words = line.split()
       for w in words:
-        for c in w:
+        for i in range(0, max(1, len(w)-n+1)):
+        #for c in w:
+          j = min(len(w), i+n)
+          c = w[i:j]
           if c not in w2i:
             w2i[c] = len(w2i)
             i2w.append(c)

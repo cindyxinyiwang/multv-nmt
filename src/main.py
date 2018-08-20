@@ -18,9 +18,8 @@ from utils import *
 
 parser = argparse.ArgumentParser(description="Neural MT")
 
-parser.add_argument("--semb", action="store_true", help="load an existing model")
+parser.add_argument("--semb", type=str, default=None, help="[mlp|dot_prod|linear]")
 parser.add_argument("--dec_semb", action="store_true", help="load an existing model")
-parser.add_argument("--mlp_emb", action="store_true", help="whether to use mlp as emb query")
 parser.add_argument("--semb_vsize", type=int, default=5000, help="how many steps to write log")
 
 parser.add_argument("--load_model", action="store_true", help="load an existing model")
@@ -88,7 +87,7 @@ parser.add_argument("--reset_hparams", action="store_true", help="whether to rel
 parser.add_argument("--char_ngram_n", type=int, default=0, help="use char_ngram embedding")
 parser.add_argument("--max_char_vocab_size", type=int, default=None, help="char vocab size")
 
-parser.add_argument("--char_input", action="store_true", help="whether to prepare character inputs")
+parser.add_argument("--char_input", type=int, default=0, help="whether to prepare character inputs")
 parser.add_argument("--char_comb", type=str, default="add", help="[cat|add]")
 
 parser.add_argument("--char_temp", type=float, default=None, help="temperature to combine word and char emb")
@@ -234,7 +233,6 @@ def train():
       semb=args.semb,
       dec_semb=args.dec_semb,
       semb_vsize=args.semb_vsize,
-      mlp_emb=args.mlp_emb,
     )
   data = DataUtil(hparams=hparams)
   # build or load model
