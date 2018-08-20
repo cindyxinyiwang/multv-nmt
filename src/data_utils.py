@@ -11,23 +11,23 @@ class DataUtil(object):
     self.hparams = hparams
     self.src_i2w_list = []
     self.src_w2i_list = []
-    for v_file in hparams.src_vocab_list:
+    for i, v_file in enumerate(hparams.src_vocab_list):
       #v_file = os.path.join(self.hparams.data_path, v_file)
       i2w, w2i = self._build_vocab(v_file, max_vocab_size=self.hparams.src_vocab_size)   
       self.src_i2w_list.append(i2w)
       self.src_w2i_list.append(w2i)
-      if self.hparams.src_vocab_size is None:
+      if i == 0:
         self.hparams.src_vocab_size = len(i2w)
         print("setting src_vocab_size to {}...".format(self.hparams.src_vocab_size))
 
     self.trg_i2w_list = []
     self.trg_w2i_list = []
-    for v_file in hparams.trg_vocab_list:
+    for i, v_file in enumerate(hparams.trg_vocab_list):
       #v_file = os.path.join(self.hparams.data_path, v_file)
       i2w, w2i = self._build_vocab(v_file, max_vocab_size=self.hparams.trg_vocab_size)   
       self.trg_i2w_list.append(i2w)
       self.trg_w2i_list.append(w2i)
-      if self.hparams.trg_vocab_size is None:
+      if i == 0:
         self.hparams.trg_vocab_size = len(i2w)
         print("setting trg_vocab_size to {}...".format(self.hparams.trg_vocab_size))
     
