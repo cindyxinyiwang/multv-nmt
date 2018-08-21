@@ -20,7 +20,7 @@ parser = argparse.ArgumentParser(description="Neural MT")
 
 parser.add_argument("--semb", type=str, default=None, help="[mlp|dot_prod|linear]")
 parser.add_argument("--dec_semb", action="store_true", help="load an existing model")
-parser.add_argument("--semb_vsize", type=int, default=5000, help="how many steps to write log")
+parser.add_argument("--semb_vsize", type=int, default=None, help="how many steps to write log")
 
 parser.add_argument("--load_model", action="store_true", help="load an existing model")
 parser.add_argument("--reset_output_dir", action="store_true", help="delete output directory if it exists")
@@ -301,10 +301,10 @@ def train():
   model.train()
   #i = 0
   while True:
-    x_train, x_mask, x_count, x_len, y_train, y_mask, y_count, y_len, batch_size, x_train_char_sparse, y_train_char_sparse, eop = data.next_train()
+    x_train, x_mask, x_count, x_len, y_train, y_mask, y_count, y_len, batch_size, x_train_char_sparse, y_train_char_sparse, eop, file_idx = data.next_train()
     optim.zero_grad()
     target_words += (y_count - batch_size)
-    logits = model.forward(x_train, x_mask, x_len, y_train[:,:-1], y_mask[:,:-1], y_len, x_train_char_sparse, y_train_char_sparse)
+    logits = model.forward(x_train, x_mask, x_len, y_train[:,:-1], y_mask[:,:-1], y_len, x_train_char_sparse, y_train_char_sparse, file_idx=file_idx)
     logits = logits.view(-1, hparams.trg_vocab_size)
     labels = y_train[:,1:].contiguous().view(-1)
     #print(labels)
@@ -352,7 +352,7 @@ def train():
     # clean up GPU memory
     if step % args.clean_mem_every == 0:
       gc.collect()
-    epoch = step // data.n_train_batches
+    epoch = step // sum(data.n_train_batches)
     if step % args.log_every == 0:
       curr_time = time.time()
       since_start = (curr_time - start_time) / 60.0
