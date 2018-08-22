@@ -21,6 +21,7 @@ parser = argparse.ArgumentParser(description="Neural MT")
 parser.add_argument("--semb", type=str, default=None, help="[mlp|dot_prod|linear]")
 parser.add_argument("--dec_semb", action="store_true", help="load an existing model")
 parser.add_argument("--semb_vsize", type=int, default=None, help="how many steps to write log")
+parser.add_argument("--lan_code_rl", action="store_true", help="whether to set all unk words of rl to a reserved id")
 
 parser.add_argument("--load_model", action="store_true", help="load an existing model")
 parser.add_argument("--reset_output_dir", action="store_true", help="delete output directory if it exists")
@@ -233,6 +234,7 @@ def train():
       semb=args.semb,
       dec_semb=args.dec_semb,
       semb_vsize=args.semb_vsize,
+      lan_code_rl=args.lan_code_rl,
     )
   data = DataUtil(hparams=hparams)
   # build or load model
