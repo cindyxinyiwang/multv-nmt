@@ -375,6 +375,8 @@ class DataUtil(object):
     trg_data = []
     line_count = 0
     skip_line_count = 0
+    src_unk_count = 0
+    trg_unk_count = 0
     for src_line, trg_line in zip(src_lines, trg_lines):
       src_tokens = src_line.split()
       trg_tokens = trg_line.split()
@@ -390,15 +392,16 @@ class DataUtil(object):
           src_char_kv, trg_char_kv = [{0:0}], [{0:0}]
       elif self.hparams.char_input:
           src_char, trg_char = [[self.hparams.pad_id]], [[self.hparams.pad_id]]
-      src_unk_count = 0
-      trg_unk_count = 0
       src_w2i = self.src_w2i_list[i]
       for src_tok in src_tokens:
+        #print(src_tok)
         if src_tok not in src_w2i:
           src_indices.append(self.hparams.unk_id)
           src_unk_count += 1
+          #print("unk {}".format(src_unk_count))
         else:
           src_indices.append(src_w2i[src_tok])
+          #print("src id {}".format(src_w2i[src_tok]))
         # calculate char ngram emb for src_tok
         if self.hparams.char_ngram_n > 0:
           ngram_counts = self._get_ngram_counts(src_tok, self.src_char_i2w, self.src_char_w2i, self.hparams.char_ngram_n)
