@@ -19,7 +19,10 @@ class DataUtil(object):
       if i == 0:
         self.hparams.src_vocab_size = len(i2w)
         print("setting src_vocab_size to {}...".format(self.hparams.src_vocab_size))
-
+    if self.hparams.lan_code_rl:
+      num_extra_lan = len(self.hparams.train_src_file_list) - 1
+      self.lan_code_list = [self.hparams.src_vocab_size+i for i in range(num_extra_lan)]
+      self.hparams.src_vocab_size += num_extra_lan
     self.trg_i2w_list = []
     self.trg_w2i_list = []
     for i, v_file in enumerate(hparams.trg_vocab_list):
@@ -65,19 +68,19 @@ class DataUtil(object):
 
       self.train_x_char_kv = []
       self.train_y_char_kv = []
-      i, self.train_size = 0, 0
-      self.n_train_batches = None
+      i, self.train_size = 0, []
+      self.n_train_batches = []
       for s_file,t_file in zip(self.hparams.train_src_file_list, self.hparams.train_trg_file_list):
         #s_file = os.path.join(self.hparams.data_path, s_file)
         #t_file = os.path.join(self.hparams.data_path, t_file)
         train_x, train_y, x_char_kv, y_char_kv = self._build_parallel(s_file, t_file, i)
-        self.train_x.extend(train_x)
-        self.train_y.extend(train_y)
+        self.train_x.append(train_x)
+        self.train_y.append(train_y)
         if not x_char_kv is None:
-          self.train_x_char_kv.extend(x_char_kv)
-          self.train_y_char_kv.extend(y_char_kv)
+          self.train_x_char_kv.append(x_char_kv)
+          self.train_y_char_kv.append(y_char_kv)
         i += 1
-        self.train_size += len(train_x)
+        self.train_size.append(len(train_x))
       dev_src_file = self.hparams.dev_src_file
       dev_trg_file = self.hparams.dev_trg_file
       self.dev_x, self.dev_y, self.dev_x_char_kv, self.dev_y_char_kv = self._build_parallel(dev_src_file, dev_trg_file, 0, is_train=False)
@@ -151,47 +154,55 @@ class DataUtil(object):
 
   def reset_train(self):
     if self.hparams.batcher == "word":
-      if self.n_train_batches is None:
-        start_indices, end_indices = [], []
-        start_index = 0
-        while start_index < self.train_size:
-          end_index = start_index
-          word_count = 0
-          while (end_index + 1 < self.train_size and word_count + len(self.train_x[end_index]) + len(self.train_y[end_index]) <= self.hparams.batch_size):
-            end_index += 1
-            word_count += (len(self.train_x[end_index]) + len(self.train_y[end_index]))
-          start_indices.append(start_index)
-          end_indices.append(end_index+1)
-          start_index = end_index + 1
-          #print(start_indices[-1], end_indices[-1])
-        assert len(start_indices) == len(end_indices)
-        self.n_train_batches = len(start_indices)
-        self.start_indices, self.end_indices = start_indices, end_indices
+      if not self.n_train_batches:
+        self.start_indices, self.end_indices = [], []
+        for i, train_size in enumerate(self.train_size):
+          start_indices, end_indices = [], []
+          start_index = 0
+          while start_index < train_size:
+            end_index = start_index
+            word_count = 0
+            while (end_index + 1 < train_size and word_count + len(self.train_x[i][end_index]) + len(self.train_y[i][end_index]) <= self.hparams.batch_size):
+              end_index += 1
+              word_count += (len(self.train_x[i][end_index]) + len(self.train_y[i][end_index]))
+            start_indices.append(start_index)
+            end_indices.append(end_index+1)
+            start_index = end_index + 1
+            #print(start_indices[-1], end_indices[-1])
+          assert len(start_indices) == len(end_indices)
+          self.n_train_batches.append(len(start_indices))
+          self.start_indices.append(start_indices)
+          self.end_indices.append(end_indices)
     elif self.hparams.batcher == "sent":
-      if self.n_train_batches is None:
-        self.n_train_batches = ((self.train_size + self.hparams.batch_size - 1) // self.hparams.batch_size)
+      if not self.n_train_batches:
+        for train_size in self.train_size:
+          self.n_train_batches.append((train_size + self.hparams.batch_size - 1) // self.hparams.batch_size)
     else:
       print("unknown batcher")
       exit(1)
-    self.train_queue = np.random.permutation(self.n_train_batches)
+    self.train_queue = []
+    for n_train_batches in self.n_train_batches:
+      self.train_queue.append(np.random.permutation(n_train_batches))
     self.train_index = 0
+    self.train_file_index = 0
 
   def next_train(self):
+    file_idx = self.train_file_index
     if self.hparams.batcher == "word":
-      start_index = self.start_indices[self.train_queue[self.train_index]]
-      end_index = self.end_indices[self.train_queue[self.train_index]]
+      start_index = self.start_indices[file_idx][self.train_queue[file_idx][self.train_index]]
+      end_index = self.end_indices[file_idx][self.train_queue[file_idx][self.train_index]]
     elif self.hparams.batcher == "sent":
-      start_index = (self.train_queue[self.train_index] * self.hparams.batch_size)
-      end_index = min(start_index + self.hparams.batch_size, self.train_size)
+      start_index = (self.train_queue[file_idx][self.train_index] * self.hparams.batch_size)
+      end_index = min(start_index + self.hparams.batch_size, self.train_size[file_idx])
     else:
       print("unknown batcher")
       exit(1)
 
-    x_train = self.train_x[start_index:end_index]
-    y_train = self.train_y[start_index:end_index]
+    x_train = self.train_x[file_idx][start_index:end_index]
+    y_train = self.train_y[file_idx][start_index:end_index]
     if self.hparams.char_ngram_n > 0 or self.hparams.char_input:
-      x_train_char_kv = self.train_x_char_kv[start_index:end_index]
-      y_train_char_kv = self.train_y_char_kv[start_index:end_index]
+      x_train_char_kv = self.train_x_char_kv[file_idx][start_index:end_index]
+      y_train_char_kv = self.train_y_char_kv[file_idx][start_index:end_index]
       x_train, y_train, x_train_char_kv, y_train_char_kv = self.sort_by_xlen(x_train, y_train, x_train_char_kv, y_train_char_kv)
     else:
       x_train, y_train = self.sort_by_xlen(x_train, y_train)
@@ -199,6 +210,9 @@ class DataUtil(object):
     self.train_index += 1
     batch_size = len(x_train)
     y_count = sum([len(y) for y in y_train])
+    if self.train_index >= self.n_train_batches[file_idx]:
+      self.train_file_index += 1
+      self.train_index = 0
     # pad 
     if self.hparams.char_ngram_n > 0:
       x_train, x_mask, x_count, x_len, x_train_char = self._pad(x_train, self.hparams.pad_id, x_train_char_kv, self.hparams.src_char_vsize)
@@ -211,12 +225,12 @@ class DataUtil(object):
       x_train, x_mask, x_count, x_len = self._pad(x_train, self.hparams.pad_id)
       y_train, y_mask, y_count, y_len = self._pad(y_train, self.hparams.pad_id)
 
-    if self.train_index >= self.n_train_batches:
+    if self.train_file_index >= len(self.train_x):
       self.reset_train()
       eop = True
     else:
       eop = False
-    return x_train, x_mask, x_count, x_len, y_train, y_mask, y_count, y_len, batch_size, x_train_char, y_train_char, eop
+    return x_train, x_mask, x_count, x_len, y_train, y_mask, y_count, y_len, batch_size, x_train_char, y_train_char, eop, file_idx 
 
   def next_dev(self, dev_batch_size=10):
     start_index = self.dev_index
@@ -377,6 +391,10 @@ class DataUtil(object):
     skip_line_count = 0
     src_unk_count = 0
     trg_unk_count = 0
+    if self.hparams.lan_code_rl and i > 0:
+      src_unk_id = self.lan_code_list[i-1]
+    else:
+      src_unk_id = self.hparams.unk_id
     for src_line, trg_line in zip(src_lines, trg_lines):
       src_tokens = src_line.split()
       trg_tokens = trg_line.split()
@@ -396,7 +414,7 @@ class DataUtil(object):
       for src_tok in src_tokens:
         #print(src_tok)
         if src_tok not in src_w2i:
-          src_indices.append(self.hparams.unk_id)
+          src_indices.append(src_unk_id)
           src_unk_count += 1
           #print("unk {}".format(src_unk_count))
         else:
