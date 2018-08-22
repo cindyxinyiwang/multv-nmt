@@ -100,10 +100,10 @@ class QueryEmb(nn.Module):
     self.vocab_size = vocab_size
     self.dropout = nn.Dropout(hparams.dropout)
     if emb is None:
-      self.emb_matrix = nn.Parameter(torch.ones(self.hparams.d_word_vec, vocab_size).uniform_(-self.hparams.init_range, self.hparams.init_range), requires_grad=True)
+      self.emb_matrix = nn.Parameter(torch.ones(vocab_size, self.hparams.d_word_vec).uniform_(-self.hparams.init_range, self.hparams.init_range), requires_grad=True)
     else:
       self.vocab_size = emb.size(0)
-      self.emb_matrix = emb.transpose(0, 1)
+      self.emb_matrix = emb
     self.softmax = nn.Softmax(dim=-1)
     self.hparams = hparams
     self.temp = np.power(hparams.d_model, 0.5)
@@ -117,7 +117,7 @@ class QueryEmb(nn.Module):
       self.w_trg = nn.Linear(self.hparams.d_word_vec, self.vocab_size)
       
  
-  def forward(self, q):
+  def forward(self, q, x_train=None, file_idx=None):
     """ 
     dot prodct attention: (q * k.T) * v
     Args:
@@ -128,34 +128,43 @@ class QueryEmb(nn.Module):
     Return:
       attn: [batch_size, d_v]
     """
+    if not file_idx is None and file_idx == 0:
+      emb = F.embedding(x_train, self.emb_matrix, padding_idx=self.hparams.pad_id)
+      emb = emb + q
+      return emb
     if self.hparams.semb == 'mlp':
       max_len, d_q = q[0].size()
       # (batch_size, max_len, d_word_vec, vocab_size)
       ctx = []
       for idx, qi in enumerate(q):
-        attn_weight = self.w_att(torch.tanh(self.emb_matrix.view(1, self.hparams.d_word_vec, self.vocab_size) + self.w_trg(qi).unsqueeze(2)).permute(0, 2, 1)).squeeze(2)
+        attn_weight = self.w_att(torch.tanh(self.emb_matrix.view(1, self.vocab_size, self.hparams.d_word_vec) + self.w_trg(qi).unsqueeze(1))).squeeze(2)
         # (max_len, vocab_size)
         #attn_weight = self.w_att(attn_hidden.permute(0, 1, 3, 2)).squeeze(3)
         attn_weight = F.softmax(attn_weight, dim=-1)
         attn_weight = self.dropout(attn_weight)
-        c = torch.mm(attn_weight, self.emb_matrix.permute(1, 0))
+        c = torch.mm(attn_weight, self.emb_matrix)
         ctx.append(c)
       ctx = torch.stack(ctx, dim=0)
     elif self.hparams.semb == 'dot_prod':
       batch_size, max_len, d_q = q.size()
       # [batch_size, max_len, vocab_size]
-      attn_weight = torch.bmm(q, self.emb_matrix.unsqueeze(0).expand(batch_size, -1, -1)) / self.temp
+      attn_weight = torch.bmm(q, self.emb_matrix.transpose(0, 1).unsqueeze(0).expand(batch_size, -1, -1)) / self.temp
       #if not attn_mask is None:
       #  attn_weight.data.masked_fill_(attn_mask, -self.hparams.inf)
       attn_weight = self.softmax(attn_weight)
       attn_weight = self.dropout(attn_weight)
       # [batch_size, max_len, d_emb_dim]
-      ctx = torch.bmm(attn_weight, self.emb_matrix.permute(1, 0).unsqueeze(0).expand(batch_size, -1, -1))
+      ctx = torch.bmm(attn_weight, self.emb_matrix.unsqueeze(0).expand(batch_size, -1, -1))
     elif self.hparams.semb == 'linear':
       batch_size, max_len, d_q = q.size()
       # [batch_size, max_len, vocab_size]
       attn_weight = self.w_trg(q)
-      ctx = torch.bmm(attn_weight, self.emb_matrix.permute(1, 0).unsqueeze(0).expand(batch_size, -1, -1))
+      ctx = torch.bmm(attn_weight, self.emb_matrix.unsqueeze(0).expand(batch_size, -1, -1))
+    elif self.hparams.semb == 'zero':
+      batch_size, max_len, d_q = q.size()
+      ctx = Variable(torch.zeros(batch_size, max_len, d_q))
+      if self.hparams.cuda: ctx = ctx.cuda()
+    ctx = ctx + q
     return ctx
 
 class MultiHeadAttn(nn.Module):
@@ -246,6 +255,8 @@ class sembEncoder(nn.Module):
     #self.word_emb = nn.Embedding(self.hparams.src_vocab_size,
     #                             self.hparams.d_word_vec,
     #                             padding_idx=hparams.pad_id)
+    if self.hparams.semb_vsize is None:
+      self.hparams.semb_vsize = self.hparams.src_vocab_size 
     self.word_emb = QueryEmb(self.hparams, self.hparams.semb_vsize, emb=emb)
 
     if self.hparams.char_ngram_n > 0:
@@ -273,7 +284,7 @@ class sembEncoder(nn.Module):
       self.dropout = self.dropout.cuda()
       self.bridge = self.bridge.cuda()
 
-  def forward(self, x_train, x_len, x_train_char=None):
+  def forward(self, x_train, x_len, x_train_char=None, file_idx=None):
     """Performs a forward pass.
     Args:
       x_train: Torch Tensor of size [batch_size, max_len]
@@ -298,8 +309,7 @@ class sembEncoder(nn.Module):
       # [batch_size, max_len, char_len, d_word_vec]
       char_emb = self.char_emb(x_train_char)
       char_emb = char_emb.sum(dim=2)
-
-    word_emb = self.word_emb(char_emb)
+    word_emb = self.word_emb(char_emb, x_train, file_idx=file_idx)
     word_emb = self.dropout(word_emb).permute(1, 0, 2)
     packed_word_emb = pack_padded_sequence(word_emb, x_len)
     enc_output, (ht, ct) = self.layer(packed_word_emb)
@@ -356,7 +366,7 @@ class Encoder(nn.Module):
       self.dropout = self.dropout.cuda()
       self.bridge = self.bridge.cuda()
 
-  def forward(self, x_train, x_len, x_train_char=None):
+  def forward(self, x_train, x_len, x_train_char=None, file_idx=None):
     """Performs a forward pass.
     Args:
       x_train: Torch Tensor of size [batch_size, max_len]
@@ -580,9 +590,9 @@ class Seq2Seq(nn.Module):
     if self.hparams.cuda:
       self.enc_to_k = self.enc_to_k.cuda()
 
-  def forward(self, x_train, x_mask, x_len, y_train, y_mask, y_len, x_train_char_sparse=None, y_train_char_sparse=None):
+  def forward(self, x_train, x_mask, x_len, y_train, y_mask, y_len, x_train_char_sparse=None, y_train_char_sparse=None, file_idx=None):
     # [batch_size, x_len, d_model * 2]
-    x_enc, dec_init = self.encoder(x_train, x_len, x_train_char_sparse)
+    x_enc, dec_init = self.encoder(x_train, x_len, x_train_char_sparse, file_idx=file_idx)
     x_enc_k = self.enc_to_k(x_enc)
     #x_enc_k = x_enc
     # [batch_size, y_len-1, trg_vocab_size]
