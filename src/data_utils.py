@@ -19,7 +19,10 @@ class DataUtil(object):
       if i == 0:
         self.hparams.src_vocab_size = len(i2w)
         print("setting src_vocab_size to {}...".format(self.hparams.src_vocab_size))
-
+    if self.hparams.lan_code_rl:
+      num_extra_lan = len(self.hparams.train_src_file_list) - 1
+      self.lan_code_list = [self.hparams.src_vocab_size+i for i in range(num_extra_lan)]
+      self.hparams.src_vocab_size += num_extra_lan
     self.trg_i2w_list = []
     self.trg_w2i_list = []
     for i, v_file in enumerate(hparams.trg_vocab_list):
@@ -386,6 +389,10 @@ class DataUtil(object):
     trg_data = []
     line_count = 0
     skip_line_count = 0
+    if self.hparams.lan_code_rl and i > 0:
+      src_unk_id = self.lan_code_list[i-1]
+    else:
+      src_unk_id = self.hparams.unk_id
     for src_line, trg_line in zip(src_lines, trg_lines):
       src_tokens = src_line.split()
       trg_tokens = trg_line.split()
@@ -406,7 +413,7 @@ class DataUtil(object):
       src_w2i = self.src_w2i_list[i]
       for src_tok in src_tokens:
         if src_tok not in src_w2i:
-          src_indices.append(self.hparams.unk_id)
+          src_indices.append(src_unk_id)
           src_unk_count += 1
         else:
           src_indices.append(src_w2i[src_tok])
