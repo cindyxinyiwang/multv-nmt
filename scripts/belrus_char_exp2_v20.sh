@@ -5,14 +5,14 @@
 #SBATCH -t 0
 
 export PYTHONPATH="$(pwd)"
-export CUDA_VISIBLE_DEVICES="3"
+export CUDA_VISIBLE_DEVICES="2"
 
 python3.6 src/main.py \
   --clean_mem_every 5 \
   --reset_output_dir \
   --char_ngram_n 4 \
-  --dec_semb="dot_prod" \
-  --demb \
+  --semb="dot_prod" \
+  --dec_semb \
   --sep_char_proj \
   --src_vocab_size 40000 \
   --output_dir="belrus/belrus_char_exp2_v20/" \
