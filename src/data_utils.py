@@ -9,6 +9,7 @@ class DataUtil(object):
 
   def __init__(self, hparams, decode=True):
     self.hparams = hparams
+    self.hparams.shuffle_train = False
     self.src_i2w_list = []
     self.src_w2i_list = []
     for i, v_file in enumerate(hparams.src_vocab_list):
@@ -39,8 +40,6 @@ class DataUtil(object):
         src, trg = self.hparams.src_char_vocab_from, self.hparams.trg_char_vocab_from
       else:
         src, trg = self.hparams.train_src_file_list[0], self.hparams.train_trg_file_list[0]
-        #src = os.path.join(self.hparams.data_path, src)
-        #trg = os.path.join(self.hparams.data_path, trg)
       print("build char vocab from {} and {}".format(src, trg))
       with open(src, 'r', encoding='utf-8') as f:
         src_lines = f.read().split('\n')
@@ -70,30 +69,53 @@ class DataUtil(object):
       self.train_y_char_kv = []
       i, self.train_size = 0, []
       self.n_train_batches = []
+
+      train_x_lens = []
+      self.file_idx = []
       for s_file,t_file in zip(self.hparams.train_src_file_list, self.hparams.train_trg_file_list):
-        #s_file = os.path.join(self.hparams.data_path, s_file)
-        #t_file = os.path.join(self.hparams.data_path, t_file)
-        train_x, train_y, x_char_kv, y_char_kv = self._build_parallel(s_file, t_file, i)
-        self.train_x.append(train_x)
-        self.train_y.append(train_y)
+        train_x, train_y, x_char_kv, y_char_kv, src_len = self._build_parallel(s_file, t_file, i)
+        if self.hparams.shuffle_train:
+          self.train_x.extend(train_x)
+          self.train_y.extend(train_y)
+        else:
+          self.train_x.append(train_x)
+          self.train_y.append(train_y)
         if not x_char_kv is None:
-          self.train_x_char_kv.append(x_char_kv)
-          self.train_y_char_kv.append(y_char_kv)
+          if self.hparams.shuffle_train:
+            self.train_x_char_kv.extend(x_char_kv)
+            self.train_y_char_kv.extend(y_char_kv)
+          else:
+            self.train_x_char_kv.append(x_char_kv)
+            self.train_y_char_kv.append(y_char_kv)
+        if self.hparams.shuffle_train:
+          self.file_idx.extend([i for _ in range(len(train_x))])
+        else:
+          self.file_idx.append([i for _ in range(len(train_x))])
+
         i += 1
         self.train_size.append(len(train_x))
+        train_x_lens.extend(src_len)
       dev_src_file = self.hparams.dev_src_file
       dev_trg_file = self.hparams.dev_trg_file
-      self.dev_x, self.dev_y, self.dev_x_char_kv, self.dev_y_char_kv = self._build_parallel(dev_src_file, dev_trg_file, 0, is_train=False)
+      self.dev_x, self.dev_y, self.dev_x_char_kv, self.dev_y_char_kv, src_len = self._build_parallel(dev_src_file, dev_trg_file, 0, is_train=False)
       self.dev_size = len(self.dev_x)
-      self.reset_train()
       self.dev_index = 0
       #self.dev_x_char, self.dev_y_char = self.get_trans_char(self.dev_x_char_kv), self.get_trans_char(self.dev_y_char_kv)
+      if self.hparams.shuffle_train:
+        print("Heuristic sort based on source lengths")
+        indices = np.argsort(train_x_lens)
+        self.train_x = [self.train_x[idx] for idx in indices]
+        self.train_y = [self.train_y[idx] for idx in indices]
+        self.train_x_char_kv = [self.train_x_char_kv[idx] for idx in indices]
+        self.train_y_char_kv = [self.train_y_char_kv[idx] for idx in indices]
+        self.file_idx = [self.file_idx[idx] for idx in indices] 
+      self.reset_train()
     else:
       #test_src_file = os.path.join(self.hparams.data_path, self.hparams.test_src_file)
       #test_trg_file = os.path.join(self.hparams.data_path, self.hparams.test_trg_file)
       test_src_file = self.hparams.test_src_file
       test_trg_file = self.hparams.test_trg_file
-      self.test_x, self.test_y, self.test_x_char_kv, self.test_y_char_kv = self._build_parallel(test_src_file, test_trg_file, 0, is_train=False)
+      self.test_x, self.test_y, self.test_x_char_kv, self.test_y_char_kv, src_len = self._build_parallel(test_src_file, test_trg_file, 0, is_train=False)
       self.test_size = len(self.test_x)
       self.test_index = 0
       if self.hparams.char_ngram_n > 0:
@@ -396,6 +418,8 @@ class DataUtil(object):
     skip_line_count = 0
     src_unk_count = 0
     trg_unk_count = 0
+
+    src_lens = []
     if self.hparams.lan_code_rl and i > 0:
       src_unk_id = self.lan_code_list[i-1]
     else:
@@ -409,7 +433,8 @@ class DataUtil(object):
       if is_train and not self.hparams.decode and self.hparams.max_len and len(src_tokens) > self.hparams.max_len and len(trg_tokens) > self.hparams.max_len:
         skip_line_count += 1
         continue
-
+      
+      src_lens.append(len(src_tokens))
       src_indices, trg_indices = [self.hparams.bos_id], [self.hparams.bos_id] 
       if self.hparams.char_ngram_n > 0:
           src_char_kv, trg_char_kv = [{0:0}], [{0:0}]
@@ -468,10 +493,10 @@ class DataUtil(object):
     assert len(src_data) == len(trg_data)
     print("lines={}, skipped_lines={}".format(len(src_data), skip_line_count))
     if self.hparams.char_ngram_n:
-      return src_data, trg_data, src_char_kv_data, trg_char_kv_data
+      return src_data, trg_data, src_char_kv_data, trg_char_kv_data, src_lens
     elif self.hparams.char_input:
-      return src_data, trg_data, src_char_data, trg_char_data
-    return src_data, trg_data, None, None
+      return src_data, trg_data, src_char_data, trg_char_data, src_lens
+    return src_data, trg_data, None, None, src_lens
 
   def _build_char_vocab(self, lines, n=1):
     i2w = ['<pad>', '<unk>', '<s>', '<\s>']
