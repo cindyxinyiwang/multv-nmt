@@ -22,6 +22,8 @@ parser.add_argument("--semb", type=str, default=None, help="[mlp|dot_prod|linear
 parser.add_argument("--dec_semb", action="store_true", help="load an existing model")
 parser.add_argument("--semb_vsize", type=int, default=None, help="how many steps to write log")
 parser.add_argument("--lan_code_rl", action="store_true", help="whether to set all unk words of rl to a reserved id")
+parser.add_argument("--sample_rl", action="store_true", help="whether to set all unk words of rl to a reserved id")
+parser.add_argument("--sep_char_proj", action="store_true", help="whether to have separate matrix for projecting char embedding")
 
 parser.add_argument("--load_model", action="store_true", help="load an existing model")
 parser.add_argument("--reset_output_dir", action="store_true", help="delete output directory if it exists")
@@ -132,7 +134,7 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
 
     logits = model.forward(
       x_valid, x_mask, x_len,
-      y_valid[:,:-1], y_mask[:,:-1], y_len, x_valid_char_sparse, y_valid_char_sparse)
+      y_valid[:,:-1], y_mask[:,:-1], y_len, x_valid_char_sparse, y_valid_char_sparse, file_idx=0)
     logits = logits.view(-1, hparams.trg_vocab_size)
     labels = y_valid[:,1:].contiguous().view(-1)
     val_loss, val_acc = get_performance(crit, logits, labels, hparams)
@@ -235,6 +237,8 @@ def train():
       dec_semb=args.dec_semb,
       semb_vsize=args.semb_vsize,
       lan_code_rl=args.lan_code_rl,
+      sample_rl=args.sample_rl,
+      sep_char_proj=args.sep_char_proj,
     )
   data = DataUtil(hparams=hparams)
   # build or load model
