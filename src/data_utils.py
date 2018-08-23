@@ -139,7 +139,7 @@ class DataUtil(object):
       w2i, i2w, vsize = self.src_char_w2i, self.src_char_i2w, self.hparams.src_char_vsize
       word = self.src_i2w_list[0][word_idx]
     if self.hparams.char_ngram_n > 0:
-      if word_idx == self.hparams.bos_id or word_idx == self.hparams.eos_id or word_idx == self.hparams.pad_id or word_idx == self.hparams.unk_id:
+      if word_idx == self.hparams.bos_id or word_idx == self.hparams.eos_id:
         kv = {0:0}
       else:
         kv = self._get_ngram_counts(word, i2w, w2i, self.hparams.char_ngram_n)
@@ -200,6 +200,11 @@ class DataUtil(object):
 
     x_train = self.train_x[file_idx][start_index:end_index]
     y_train = self.train_y[file_idx][start_index:end_index]
+    if self.hparams.sample_rl and file_idx != 0:
+      x_train_sample = []
+      for x_t in x_train:
+        x_train_sample.append([x_t[0]] + [random.randint(3, self.hparams.src_vocab_size-1) for i in range(len(x_t)-2)] + [x_t[-1]])
+      x_train = x_train_sample
     if self.hparams.char_ngram_n > 0 or self.hparams.char_input:
       x_train_char_kv = self.train_x_char_kv[file_idx][start_index:end_index]
       y_train_char_kv = self.train_y_char_kv[file_idx][start_index:end_index]

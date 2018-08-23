@@ -5,15 +5,16 @@
 #SBATCH -t 0
 
 export PYTHONPATH="$(pwd)"
-export CUDA_VISIBLE_DEVICES="0"
+export CUDA_VISIBLE_DEVICES="3"
 
-python3.6 src/main.py \
+python src/main.py \
   --clean_mem_every 5 \
   --reset_output_dir \
   --char_ngram_n 4 \
-  --sample_rl \
+  --semb="dot_prod" \
+  --sep_char_proj \
   --src_vocab_size 40000 \
-  --output_dir="belrus/belrus_char_exp2_v11/" \
+  --output_dir="belrus/belrus_char_exp2_v18/" \
   --data_path data/belrus_eng/ \
   --train_src_file_list  data/bel_eng/ted-train.mtok.bel,data/rus_eng/ted-train.mtok.rus \
   --train_trg_file_list  data/bel_eng/ted-train.mtok.spm8000.eng,data/rus_eng/ted-train.mtok.spm8000.eng \
@@ -22,8 +23,6 @@ python3.6 src/main.py \
   --dev_trg_ref  data/bel_eng/ted-dev.mtok.eng \
   --src_vocab_list  data/bel_eng/ted-train.mtok.bel.vocab,data/rus_eng/ted-train.mtok.rus.vocab \
   --trg_vocab_list  data/belrus_eng/ted-train.mtok.spm8000.eng.vocab,data/belrus_eng/ted-train.mtok.spm8000.eng.vocab \
-  --src_char_vocab_from data/bel_eng/ted-train.mtok.bel \
-  --trg_char_vocab_from data/bel_eng/ted-train.mtok.spm8000.eng \
   --d_word_vec=128 \
   --d_model=512 \
   --log_every=50 \
@@ -36,7 +35,7 @@ python3.6 src/main.py \
   --batch_size 1500 \
   --valid_batch_size=7 \
   --patience 5 \
-  --lr_dec 0.8 \
+  --lr_dec 0.95 \
   --dropout 0.3 \
   --max_len 10000 \
   --seed 0
