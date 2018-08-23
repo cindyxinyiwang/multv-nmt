@@ -268,6 +268,17 @@ class sembEncoder(nn.Module):
       if self.hparams.cuda:
         self.char_emb = self.char_emb.cuda()
 
+    if self.hparams.sep_char_proj:
+      #self.sep_proj_list = []
+      #for i in range(len(self.hparams.train_file_list)):
+      #  self.sep_proj_list.append(nn.Linear(self.hparams.d_word_vec, self.hparams.d_word_vec, bias=False))
+      #  if self.hparams.cuda: self.sep_proj_list[-1] = self.sep_proj_list[-1].cuda()
+      self.sep_proj_0 = nn.Linear(self.hparams.d_word_vec, self.hparams.d_word_vec, bias=False)
+      self.sep_proj_1 = nn.Linear(self.hparams.d_word_vec, self.hparams.d_word_vec, bias=False)
+      if self.hparams.cuda: 
+        self.sep_proj_0 = self.sep_proj_0.cuda()
+        self.sep_proj_1 = self.sep_proj_1.cuda()
+ 
     d_word_vec = self.hparams.d_word_vec
     self.layer = nn.LSTM(d_word_vec, 
                          self.hparams.d_model, 
@@ -300,6 +311,12 @@ class sembEncoder(nn.Module):
         emb = Variable(x_char_sent.to_dense(), requires_grad=False)
         if self.hparams.cuda: emb = emb.cuda()
         x_char_sent = torch.tanh(self.char_emb_proj(emb))
+        if self.hparams.sep_char_proj:
+          assert file_idx is not None
+          if file_idx == 0:
+            x_char_sent = torch.tanh(self.sep_proj_0(x_char_sent))
+          elif file_idx == 1:
+            x_char_sent = torch.tanh(self.sep_proj_1(x_char_sent))
         x_train_char[idx] = x_char_sent
       if not self.hparams.semb == 'mlp':
         char_emb = torch.stack(x_train_char, dim=0)
@@ -345,6 +362,17 @@ class Encoder(nn.Module):
       if self.hparams.cuda:
         self.char_emb = self.char_emb.cuda()
 
+    if self.hparams.sep_char_proj:
+      #self.sep_proj_list = []
+      #for i in range(len(self.hparams.train_src_file_list)):
+      #  self.sep_proj_list.append(nn.Linear(self.hparams.d_word_vec, self.hparams.d_word_vec, bias=False))
+      #  if self.hparams.cuda: self.sep_proj_list[-1] = self.sep_proj_list[-1].cuda()
+      self.sep_proj_0 = nn.Linear(self.hparams.d_word_vec, self.hparams.d_word_vec, bias=False)
+      self.sep_proj_1 = nn.Linear(self.hparams.d_word_vec, self.hparams.d_word_vec, bias=False)
+      if self.hparams.cuda: 
+        self.sep_proj_0 = self.sep_proj_0.cuda()
+        self.sep_proj_1 = self.sep_proj_1.cuda()
+     
     if self.hparams.char_comb == "add":
       d_word_vec = self.hparams.d_word_vec
     elif self.hparams.char_comb == "cat":
@@ -389,6 +417,13 @@ class Encoder(nn.Module):
         emb = Variable(x_char_sent.to_dense(), requires_grad=False)
         if self.hparams.cuda: emb = emb.cuda()
         x_char_sent = torch.tanh(self.char_emb_proj(emb))
+        if self.hparams.sep_char_proj:
+          assert file_idx is not None
+          if file_idx == 0:
+            x_char_sent = torch.tanh(self.sep_proj_0(x_char_sent))
+          elif file_idx == 1:
+            x_char_sent = torch.tanh(self.sep_proj_1(x_char_sent))
+        x_train_char[idx] = x_char_sent
         x_train_char[idx] = x_char_sent
       char_emb = torch.stack(x_train_char, dim=0).permute(1, 0, 2)
       if self.hparams.char_comb == 'add':
@@ -617,7 +652,7 @@ class Seq2Seq(nn.Module):
     assert len(x_train.size()) == 1
     x_len = [x_train.size(0)]
     x_train = x_train.unsqueeze(0)
-    x_enc, dec_init = self.encoder(x_train, x_len, x_train_char)
+    x_enc, dec_init = self.encoder(x_train, x_len, x_train_char, file_idx=0)
     x_enc_k = self.enc_to_k(x_enc)
     #x_enc_k = x_enc
     length = 0
