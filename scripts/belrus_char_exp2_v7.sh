@@ -10,11 +10,11 @@
 python src/main.py \
   --clean_mem_every 5 \
   --reset_output_dir \
-  --char_ngram_n 4 \
+  --char_input 1 \
   --src_vocab_size 40000 \
-  --output_dir="belrus/belrus_char_exp2_v1/" \
+  --output_dir="belrus/belrus_char_exp2_v7/" \
   --data_path data/belrus_eng/ \
-  --train_src_file_list data/belrus_eng/ted-train.mtok.belrus \
+  --train_src_file_list  data/belrus_eng/ted-train.mtok.belrus \
   --train_trg_file_list  data/belrus_eng/ted-train.mtok.spm8000.eng \
   --dev_src_file  data/bel_eng/ted-dev.mtok.bel \
   --dev_trg_file  data/bel_eng/ted-dev.mtok.spm8000.eng \
@@ -28,7 +28,6 @@ python src/main.py \
   --ppl_thresh=13 \
   --merge_bpe \
   --eval_bleu \
-  --cuda \
   --batcher='word' \
   --batch_size 1500 \
   --valid_batch_size=7 \

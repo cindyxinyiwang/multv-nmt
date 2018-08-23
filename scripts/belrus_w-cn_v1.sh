@@ -5,21 +5,21 @@
 #SBATCH -t 0
 
 #export PYTHONPATH="$(pwd)"
-#export CUDA_VISIBLE_DEVICES="0"
+#export CUDA_VISIBLE_DEVICES="2"
 
 python src/main.py \
   --clean_mem_every 5 \
   --reset_output_dir \
   --char_ngram_n 4 \
   --src_vocab_size 40000 \
-  --output_dir="belrus/belrus_char_exp2_v1/" \
+  --output_dir="belrus/belrus_w-cn_v1/" \
   --data_path data/belrus_eng/ \
   --train_src_file_list data/belrus_eng/ted-train.mtok.belrus \
   --train_trg_file_list  data/belrus_eng/ted-train.mtok.spm8000.eng \
   --dev_src_file  data/bel_eng/ted-dev.mtok.bel \
   --dev_trg_file  data/bel_eng/ted-dev.mtok.spm8000.eng \
   --dev_trg_ref  data/bel_eng/ted-dev.mtok.eng \
-  --src_vocab_list  data/bel_eng/ted-train.mtok.bel.vocab \
+  --src_vocab_list  data/belrus_eng/ted-train.mtok.belrus.vocab \
   --trg_vocab_list  data/belrus_eng/ted-train.mtok.spm8000.eng.vocab \
   --d_word_vec=128 \
   --d_model=512 \
@@ -28,12 +28,12 @@ python src/main.py \
   --ppl_thresh=13 \
   --merge_bpe \
   --eval_bleu \
-  --cuda \
   --batcher='word' \
   --batch_size 1500 \
   --valid_batch_size=7 \
   --patience 5 \
-  --lr_dec 0.8 \
+  --lr_dec 0.95 \
   --dropout 0.3 \
   --max_len 10000 \
+  --cuda \
   --seed 0

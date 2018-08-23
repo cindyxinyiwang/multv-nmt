@@ -12,20 +12,22 @@ python src/main.py \
   --reset_output_dir \
   --char_ngram_n 4 \
   --src_vocab_size 40000 \
-  --output_dir="belrus/belrus_char_exp2_v1/" \
+  --output_dir="belrus/belrus_char_exp2_v9/" \
   --data_path data/belrus_eng/ \
-  --train_src_file_list data/belrus_eng/ted-train.mtok.belrus \
-  --train_trg_file_list  data/belrus_eng/ted-train.mtok.spm8000.eng \
+  --train_src_file_list  data/bel_eng/ted-train.mtok.bel,data/rus_eng/ted-train.mtok.rus \
+  --train_trg_file_list  data/bel_eng/ted-train.mtok.spm8000.eng,data/rus_eng/ted-train.mtok.spm8000.eng \
   --dev_src_file  data/bel_eng/ted-dev.mtok.bel \
   --dev_trg_file  data/bel_eng/ted-dev.mtok.spm8000.eng \
   --dev_trg_ref  data/bel_eng/ted-dev.mtok.eng \
-  --src_vocab_list  data/bel_eng/ted-train.mtok.bel.vocab \
-  --trg_vocab_list  data/belrus_eng/ted-train.mtok.spm8000.eng.vocab \
+  --src_vocab_list  data/belrus_eng/ted-train.mtok.belrus.vocab,data/belrus_eng/ted-train.mtok.belrus.vocab \
+  --trg_vocab_list  data/belrus_eng/ted-train.mtok.spm8000.eng.vocab,data/belrus_eng/ted-train.mtok.spm8000.eng.vocab \
+  --src_char_vocab_from data/belrus_eng/ted-train.mtok.belrus \
+  --trg_char_vocab_from data/belrus_eng/ted-train.mtok.spm8000.eng \
   --d_word_vec=128 \
   --d_model=512 \
   --log_every=50 \
   --eval_every=2500 \
-  --ppl_thresh=13 \
+  --ppl_thresh=15 \
   --merge_bpe \
   --eval_bleu \
   --cuda \
