@@ -128,7 +128,7 @@ class QueryEmb(nn.Module):
     Return:
       attn: [batch_size, d_v]
     """
-    if not file_idx is None and file_idx == 0:
+    if (not hasattr(self.hparams, 'query_base') or not self.hparams.query_base) and file_idx == 0:
       emb = F.embedding(x_train, self.emb_matrix, padding_idx=self.hparams.pad_id)
       emb = emb + q
       return emb
