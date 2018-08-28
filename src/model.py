@@ -5,6 +5,7 @@ from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 import torch.nn.functional as F
 
+import gc
 import numpy as np
 from utils import *
 
@@ -268,6 +269,10 @@ class sembEncoder(nn.Module):
       if self.hparams.cuda:
         self.char_emb = self.char_emb.cuda()
 
+    if self.hparams.layer_norm:
+      self.layer_norm = LayerNormalization(d_hid=self.hparams.d_word_vec)
+      if self.hparams.cuda: self.layer_norm = self.layer_norm.cuda()
+
     if self.hparams.sep_char_proj:
       #self.sep_proj_list = []
       #for i in range(len(self.hparams.train_file_list)):
@@ -311,12 +316,18 @@ class sembEncoder(nn.Module):
         emb = Variable(x_char_sent.to_dense(), requires_grad=False)
         if self.hparams.cuda: emb = emb.cuda()
         x_char_sent = torch.tanh(self.char_emb_proj(emb))
+        if self.hparams.residue:
+          x_char_sent_in = x_char_sent
         if self.hparams.sep_char_proj:
           assert file_idx is not None
           if file_idx == 0:
             x_char_sent = torch.tanh(self.sep_proj_0(x_char_sent))
           elif file_idx == 1:
             x_char_sent = torch.tanh(self.sep_proj_1(x_char_sent))
+        if self.hparams.residue:
+          x_char_sent = x_char_sent + x_char_sent_in
+        if self.hparams.layer_norm:
+          x_char_sent = self.layer_norm(x_char_sent)
         x_train_char[idx] = x_char_sent
       if not self.hparams.semb == 'mlp':
         char_emb = torch.stack(x_train_char, dim=0)
@@ -407,7 +418,7 @@ class Encoder(nn.Module):
     batch_size, max_len = x_train.size()
     # [batch_size, max_len, d_word_vec]
     if self.hparams.src_char_only:
-      word_emb = Variable(torch.zeros(max_len, batch_size, self.hparams.d_word_vec), volatile=True)
+      word_emb = Variable(torch.zeros(max_len, batch_size, self.hparams.d_word_vec), requires_grad=False)
       if self.hparams.cuda: word_emb = word_emb.cuda()
     else:
       word_emb = self.word_emb(x_train.transpose(0, 1))
@@ -452,7 +463,8 @@ class Encoder(nn.Module):
     packed_word_emb = pack_padded_sequence(word_emb, x_len)
     enc_output, (ht, ct) = self.layer(packed_word_emb)
     enc_output, _ = pad_packed_sequence(enc_output,  padding_value=self.hparams.pad_id)
-    enc_output = enc_output.permute(1, 0, 2)
+    #enc_output, (ht, ct) = self.layer(word_emb)
+    #enc_output = enc_output.permute(1, 0, 2)
 
     dec_init_cell = self.bridge(torch.cat([ct[0], ct[1]], 1))
     dec_init_state = F.tanh(dec_init_cell)
@@ -637,11 +649,12 @@ class Seq2Seq(nn.Module):
   def translate(self, x_train, max_len=100, beam_size=5, poly_norm_m=0, x_train_char=None, y_train_char=None):
     hyps = []
     for i, x in enumerate(x_train):
+      gc.collect()
       if x_train_char:
         x_char = x_train_char[i]
       else:
         x_char = None
-      x = Variable(torch.LongTensor(x), volatile=True)
+      x = Variable(torch.LongTensor(x))
       if self.hparams.cuda:
         x = x.cuda()
       hyp = self.translate_sent(x, max_len=max_len, beam_size=beam_size, poly_norm_m=poly_norm_m, x_train_char=x_char)[0]
@@ -657,7 +670,8 @@ class Seq2Seq(nn.Module):
     #x_enc_k = x_enc
     length = 0
     completed_hyp = []
-    input_feed = Variable(torch.zeros(1, self.hparams.d_model * 2), requires_grad=False)
+    with torch.no_grad():
+      input_feed = Variable(torch.zeros(1, self.hparams.d_model * 2), requires_grad=False)
     #input_feed = Variable(torch.zeros(1, self.hparams.d_model), requires_grad=False)
     if self.hparams.cuda:
       input_feed = input_feed.cuda()
@@ -666,7 +680,8 @@ class Seq2Seq(nn.Module):
       length += 1
       new_hyp_score_list = []
       for i, hyp in enumerate(active_hyp):
-        y_tm1 = Variable(torch.LongTensor([int(hyp.y[-1])] ), volatile=True)
+        with torch.no_grad():
+          y_tm1 = Variable(torch.LongTensor([int(hyp.y[-1])] ))
         if self.hparams.cuda:
           y_tm1 = y_tm1.cuda()
         logits, dec_state, ctx = self.decoder.step(x_enc, x_enc_k, y_tm1, hyp.state, hyp.ctx_tm1, self.data)
