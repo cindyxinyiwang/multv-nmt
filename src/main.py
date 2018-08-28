@@ -25,6 +25,8 @@ parser.add_argument("--semb_vsize", type=int, default=None, help="how many steps
 parser.add_argument("--lan_code_rl", action="store_true", help="whether to set all unk words of rl to a reserved id")
 parser.add_argument("--sample_rl", action="store_true", help="whether to set all unk words of rl to a reserved id")
 parser.add_argument("--sep_char_proj", action="store_true", help="whether to have separate matrix for projecting char embedding")
+parser.add_argument("--residue", action="store_true", help="whether to set all unk words of rl to a reserved id")
+parser.add_argument("--layer_norm", action="store_true", help="whether to set all unk words of rl to a reserved id")
 
 parser.add_argument("--load_model", action="store_true", help="load an existing model")
 parser.add_argument("--reset_output_dir", action="store_true", help="delete output directory if it exists")
@@ -241,6 +243,8 @@ def train():
       sample_rl=args.sample_rl,
       sep_char_proj=args.sep_char_proj,
       query_base=args.query_base,
+      residue=args.residue,
+      layer_norm=args.layer_norm,
     )
   data = DataUtil(hparams=hparams)
   # build or load model
@@ -389,7 +393,8 @@ def train():
       eval_now = False 
     if eval_now:
       based_on_bleu = args.eval_bleu and best_val_ppl <= args.ppl_thresh
-      val_ppl, val_bleu = eval(model, data, crit, step, hparams, eval_bleu=based_on_bleu, valid_batch_size=args.valid_batch_size, tr_logits=logits)	
+      with torch.no_grad():
+        val_ppl, val_bleu = eval(model, data, crit, step, hparams, eval_bleu=based_on_bleu, valid_batch_size=args.valid_batch_size, tr_logits=logits)	
       if based_on_bleu:
         if best_val_bleu <= val_bleu:
           save = True 
