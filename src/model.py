@@ -463,8 +463,7 @@ class Encoder(nn.Module):
     packed_word_emb = pack_padded_sequence(word_emb, x_len)
     enc_output, (ht, ct) = self.layer(packed_word_emb)
     enc_output, _ = pad_packed_sequence(enc_output,  padding_value=self.hparams.pad_id)
-    #enc_output, (ht, ct) = self.layer(word_emb)
-    #enc_output = enc_output.permute(1, 0, 2)
+    enc_output = enc_output.permute(1, 0, 2)
 
     dec_init_cell = self.bridge(torch.cat([ct[0], ct[1]], 1))
     dec_init_state = F.tanh(dec_init_cell)
