@@ -68,7 +68,9 @@ parser.add_argument("--trg_vocab_list", type=str, default=None, help="target voc
 parser.add_argument("--test_src_file", type=str, default=None, help="source test file")
 parser.add_argument("--test_trg_file", type=str, default=None, help="target test file")
 parser.add_argument("--src_char_vocab_from", type=str, default=None, help="source char vocab file")
+parser.add_argument("--src_char_vocab_size", type=str, default=None, help="source char vocab file")
 parser.add_argument("--trg_char_vocab_from", type=str, default=None, help="source char vocab file")
+parser.add_argument("--trg_char_vocab_size", type=str, default=None, help="source char vocab file")
 parser.add_argument("--src_vocab_size", type=int, default=None, help="src vocab size")
 parser.add_argument("--trg_vocab_size", type=int, default=None, help="trg vocab size")
 
@@ -237,7 +239,9 @@ def train():
       char_comb=args.char_comb,
       char_temp=args.char_temp,
       src_char_vocab_from=args.src_char_vocab_from,
+      src_char_vocab_size=args.src_char_vocab_size,
       trg_char_vocab_from=args.trg_char_vocab_from,
+      trg_char_vocab_size=args.trg_char_vocab_size,
       src_char_only=args.src_char_only,
       semb=args.semb,
       dec_semb=args.dec_semb,
