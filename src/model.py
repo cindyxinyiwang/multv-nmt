@@ -41,7 +41,7 @@ class MlpAttn(nn.Module):
 
 
 class LayerNormalization(nn.Module):
-  def __init__(self, d_hid, eps=1e-9):
+  def __init__(self, d_hid, eps=1):
     super(LayerNormalization, self).__init__()
 
     self.d_hid = d_hid
@@ -116,7 +116,9 @@ class QueryEmb(nn.Module):
         self.w_att = self.w_att.cuda()
     elif self.hparams.semb == 'linear':
       self.w_trg = nn.Linear(self.hparams.d_word_vec, self.vocab_size)
-      
+    if hasattr(self.hparams, 'char_gate') and self.hparams.char_gate:
+      self.char_gate = nn.Linear(self.hparams.d_word_vec*2, 1)
+      if self.hparams.cuda: self.char_gate = self.char_gate.cuda()
  
   def forward(self, q, x_train=None, file_idx=None):
     """ 
@@ -165,7 +167,14 @@ class QueryEmb(nn.Module):
       batch_size, max_len, d_q = q.size()
       ctx = Variable(torch.zeros(batch_size, max_len, d_q))
       if self.hparams.cuda: ctx = ctx.cuda()
-    ctx = ctx + q
+    if hasattr(self.hparams, 'src_no_char') and self.hparams.src_no_char:
+      pass
+    else:
+      if hasattr(self.hparams, 'char_gate') and self.hparams.char_gate:
+        g = F.sigmoid(self.char_gate(torch.cat([ctx, q], dim=-1)))
+        ctx = ctx * g + q * (1-g)
+      else:
+        ctx = ctx + q
     return ctx
 
 class MultiHeadAttn(nn.Module):
@@ -503,6 +512,10 @@ class Decoder(nn.Module):
     elif self.hparams.char_comb == "cat":
       d_word_vec = self.hparams.d_word_vec * 2
 
+    if hasattr(self.hparams, 'char_gate') and self.hparams.char_gate:
+      self.char_gate = nn.Linear(self.hparams.d_word_vec*2, 1)
+      if self.hparams.cuda: self.char_gate = self.char_gate.cuda()
+ 
     # input: [y_t-1, input_feed]
     #self.layer = nn.LSTMCell(d_word_vec + hparams.d_model, 
     self.layer = nn.LSTMCell(d_word_vec + hparams.d_model * 2, 
@@ -530,35 +543,41 @@ class Decoder(nn.Module):
       input_feed = input_feed.cuda()
     # [batch_size, y_len, d_word_vec]
     trg_emb = self.word_emb(y_train)
-    if self.hparams.char_ngram_n > 0:
-      for idx, y_char_sent in enumerate(y_train_char):
-        emb = Variable(y_char_sent.to_dense(), requires_grad=False)[:-1,:]
-        if self.hparams.cuda: emb = emb.cuda()
-        y_char_sent = torch.tanh(self.char_emb_proj(emb))
-        y_train_char[idx] = y_char_sent
-      char_emb = torch.stack(y_train_char, dim=0)
-      if self.hparams.char_comb == 'add':
-        if not self.hparams.char_temp:
-          trg_emb = trg_emb + char_emb
-        elif self.hparams.char_temp < 1:
-          trg_emb = trg_emb * (1-self.hparams.char_temp) + char_emb * self.hparams.char_temp
-        elif self.hparams.char_temp > 1:
-          trg_emb = trg_emb + char_emb * self.hparams.char_temp
-      elif self.hparams.char_comb == 'cat':
-        trg_emb = torch.cat([trg_emb, char_emb], dim=-1)
-    elif self.hparams.char_input:
-      # [batch_size, max_len, char_len, d_word_vec]
-      char_emb = self.char_emb(y_train_char)
-      char_emb = char_emb.sum(dim=2)[:,:-1,:]
-      if self.hparams.char_comb == 'add':
-        if not self.hparams.char_temp:
-          trg_emb = trg_emb + char_emb
-        elif self.hparams.char_temp < 1:
-          trg_emb = trg_emb * (1-self.hparams.char_temp) + char_emb * self.hparams.char_temp
-        elif self.hparams_char_temp > 1:
-          trg_emb = trg_emb + char_emb * self.hparams.char_temp
-      elif self.hparams.char_comb == 'cat':
-        trg_emb = torch.cat([trg_emb, char_emb], dim=-1)
+    if hasattr(self.hparams, 'trg_no_char') and self.hparams.trg_no_char:
+        pass
+    else:
+      if self.hparams.char_ngram_n > 0:
+        for idx, y_char_sent in enumerate(y_train_char):
+          emb = Variable(y_char_sent.to_dense(), requires_grad=False)[:-1,:]
+          if self.hparams.cuda: emb = emb.cuda()
+          y_char_sent = torch.tanh(self.char_emb_proj(emb))
+          y_train_char[idx] = y_char_sent
+        char_emb = torch.stack(y_train_char, dim=0)
+        if self.hparams.char_comb == 'add':
+          if not self.hparams.char_temp:
+            trg_emb = trg_emb + char_emb
+          elif hasattr(self.harams, 'char_gate') and self.hparams.char_gate:
+            g = F.sigmoid(self.char_gate(torch.cat([ctx, q], dim=-1)))
+            ctx = ctx * g + q * (1-g)
+          elif self.hparams.char_temp < 1:
+            trg_emb = trg_emb * (1-self.hparams.char_temp) + char_emb * self.hparams.char_temp
+          elif self.hparams.char_temp > 1:
+            trg_emb = trg_emb + char_emb * self.hparams.char_temp
+        elif self.hparams.char_comb == 'cat':
+          trg_emb = torch.cat([trg_emb, char_emb], dim=-1)
+      elif self.hparams.char_input:
+        # [batch_size, max_len, char_len, d_word_vec]
+        char_emb = self.char_emb(y_train_char)
+        char_emb = char_emb.sum(dim=2)[:,:-1,:]
+        if self.hparams.char_comb == 'add':
+          if not self.hparams.char_temp:
+            trg_emb = trg_emb + char_emb
+          elif self.hparams.char_temp < 1:
+            trg_emb = trg_emb * (1-self.hparams.char_temp) + char_emb * self.hparams.char_temp
+          elif self.hparams_char_temp > 1:
+            trg_emb = trg_emb + char_emb * self.hparams.char_temp
+        elif self.hparams.char_comb == 'cat':
+          trg_emb = torch.cat([trg_emb, char_emb], dim=-1)
 
     pre_readouts = []
     logits = []

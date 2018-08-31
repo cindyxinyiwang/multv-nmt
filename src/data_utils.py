@@ -36,21 +36,24 @@ class DataUtil(object):
         print("setting trg_vocab_size to {}...".format(self.hparams.trg_vocab_size))
     
     if self.hparams.char_ngram_n > 0 or self.hparams.char_input:
-      if hasattr(self.hparams, "src_char_vocab_from") and self.hparams.src_char_vocab_from:
-        src, trg = self.hparams.src_char_vocab_from, self.hparams.trg_char_vocab_from
-      else:
-        src, trg = self.hparams.train_src_file_list[0], self.hparams.train_trg_file_list[0]
-      print("build char vocab from {} and {}".format(src, trg))
-      with open(src, 'r', encoding='utf-8') as f:
-        src_lines = f.read().split('\n')
-      with open(trg, 'r', encoding='utf-8') as f:
-        trg_lines = f.read().split('\n') 
-      if self.hparams.char_ngram_n > 0:
-        self.src_char_i2w, self.src_char_w2i = self._build_char_ngram_vocab(src_lines, self.hparams.char_ngram_n, self.hparams.max_char_vocab_size)
-        self.trg_char_i2w, self.trg_char_w2i = self._build_char_ngram_vocab(trg_lines, self.hparams.char_ngram_n, self.hparams.max_char_vocab_size)
-      elif self.hparams.char_input > 0:
-        self.src_char_i2w, self.src_char_w2i = self._build_char_vocab(src_lines, self.hparams.char_input)
-        self.trg_char_i2w, self.trg_char_w2i = self._build_char_vocab(trg_lines, self.hparams.char_input)
+      #if hasattr(self.hparams, "src_char_vocab_from") and self.hparams.src_char_vocab_from:
+      #  src, trg = self.hparams.src_char_vocab_from, self.hparams.trg_char_vocab_from
+      #else:
+      #  src, trg = self.hparams.train_src_file_list[0], self.hparams.train_trg_file_list[0]
+      #print("build trg char vocab from  {}".format(src, trg))
+      #with open(src, 'r', encoding='utf-8') as f:
+      #  src_lines = f.read().split('\n')
+      #with open(trg, 'r', encoding='utf-8') as f:
+      #  trg_lines = f.read().split('\n') 
+      #if self.hparams.char_ngram_n > 0:
+      #  self.src_char_i2w, self.src_char_w2i = self._build_char_ngram_vocab(src_lines, self.hparams.char_ngram_n, self.hparams.max_char_vocab_size)
+      #  self.trg_char_i2w, self.trg_char_w2i = self._build_char_ngram_vocab(trg_lines, self.hparams.char_ngram_n, self.hparams.max_char_vocab_size)
+      #elif self.hparams.char_input > 0:
+      #  self.src_char_i2w, self.src_char_w2i = self._build_char_vocab(src_lines, self.hparams.char_input)
+      #  self.trg_char_i2w, self.trg_char_w2i = self._build_char_vocab(trg_lines, self.hparams.char_input)
+      #self.src_char_vsize, self.trg_char_vsize = len(self.src_char_i2w), len(self.trg_char_i2w)
+      self.src_char_i2w, self.src_char_w2i = self._build_char_vocab_from(self.hparams.src_char_vocab_from, self.hparams.src_char_vocab_size)
+      self.trg_char_i2w, self.trg_char_w2i = self._build_char_vocab_from(self.hparams.trg_char_vocab_from, self.hparams.trg_char_vocab_size)
       self.src_char_vsize, self.trg_char_vsize = len(self.src_char_i2w), len(self.trg_char_i2w)
       setattr(self.hparams, 'src_char_vsize', self.src_char_vsize)
       setattr(self.hparams, 'trg_char_vsize', self.trg_char_vsize)
@@ -565,3 +568,26 @@ class DataUtil(object):
     assert w2i['<s>'] == self.hparams.bos_id
     assert w2i['<\s>'] == self.hparams.eos_id
     return i2w, w2i
+
+  def _build_char_vocab_from(self, vocab_file_list, vocab_size_list):
+    vfile_list = vocab_file_list.split(",")
+    vsize_list = [int(s) for s in vocab_size_list.split(",")]
+    i2w_sets = []
+    for vfile, size in zip(vfile_list, vsize_list):
+      i2w = []
+      with open(vfile, 'r', encoding='utf-8') as f:
+        for line in f:
+          w = line.strip()
+          if w == '<unk>' or w == '<pad>' or w == '<s>' or w == '<\s>': continue
+          i2w.append(w)
+          if size > 0 and len(i2w) > size: break 
+      i2w_sets.append(set(i2w))
+    i2w_set = set([])
+    for s in i2w_sets:
+      i2w_set = i2w_set | s
+    i2w = ['<pad>', '<unk>', '<s>', '<\s>'] + list(i2w_set)
+    w2i = {}
+    for i, w in enumerate(i2w):
+      w2i[i] = w
+    return i2w, w2i
+
