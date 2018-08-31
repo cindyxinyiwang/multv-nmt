@@ -41,7 +41,7 @@ class MlpAttn(nn.Module):
 
 
 class LayerNormalization(nn.Module):
-  def __init__(self, d_hid, eps=1e-3):
+  def __init__(self, d_hid, eps=1):
     super(LayerNormalization, self).__init__()
 
     self.d_hid = d_hid
@@ -116,7 +116,9 @@ class QueryEmb(nn.Module):
         self.w_att = self.w_att.cuda()
     elif self.hparams.semb == 'linear':
       self.w_trg = nn.Linear(self.hparams.d_word_vec, self.vocab_size)
-      
+    if hasattr(self.hparams, 'char_gate') and self.hparams.char_gate:
+      self.char_gate = nn.Linear(self.hparams.d_word_vec*2, 1)
+      if self.hparams.cuda: self.char_gate = self.char_gate.cuda()
  
   def forward(self, q, x_train=None, file_idx=None):
     """ 
@@ -168,7 +170,11 @@ class QueryEmb(nn.Module):
     if hasattr(self.hparams, 'src_no_char') and self.hparams.src_no_char:
       pass
     else:
-      ctx = ctx + q
+      if hasattr(self.hparams, 'char_gate') and self.hparams.char_gate:
+        g = F.sigmoid(self.char_gate(torch.cat([ctx, q], dim=-1)))
+        ctx = ctx * g + q * (1-g)
+      else:
+        ctx = ctx + q
     return ctx
 
 class MultiHeadAttn(nn.Module):
@@ -506,6 +512,10 @@ class Decoder(nn.Module):
     elif self.hparams.char_comb == "cat":
       d_word_vec = self.hparams.d_word_vec * 2
 
+    if hasattr(self.hparams, 'char_gate') and self.hparams.char_gate:
+      self.char_gate = nn.Linear(self.hparams.d_word_vec*2, 1)
+      if self.hparams.cuda: self.char_gate = self.char_gate.cuda()
+ 
     # input: [y_t-1, input_feed]
     #self.layer = nn.LSTMCell(d_word_vec + hparams.d_model, 
     self.layer = nn.LSTMCell(d_word_vec + hparams.d_model * 2, 
@@ -546,6 +556,9 @@ class Decoder(nn.Module):
         if self.hparams.char_comb == 'add':
           if not self.hparams.char_temp:
             trg_emb = trg_emb + char_emb
+          elif hasattr(self.harams, 'char_gate') and self.hparams.char_gate:
+            g = F.sigmoid(self.char_gate(torch.cat([ctx, q], dim=-1)))
+            ctx = ctx * g + q * (1-g)
           elif self.hparams.char_temp < 1:
             trg_emb = trg_emb * (1-self.hparams.char_temp) + char_emb * self.hparams.char_temp
           elif self.hparams.char_temp > 1:

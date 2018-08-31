@@ -29,6 +29,7 @@ parser.add_argument("--residue", action="store_true", help="whether to set all u
 parser.add_argument("--layer_norm", action="store_true", help="whether to set all unk words of rl to a reserved id")
 parser.add_argument("--src_no_char", action="store_true", help="load an existing model")
 parser.add_argument("--trg_no_char", action="store_true", help="load an existing model")
+parser.add_argument("--char_gate", action="store_true", help="load an existing model")
 
 parser.add_argument("--load_model", action="store_true", help="load an existing model")
 parser.add_argument("--reset_output_dir", action="store_true", help="delete output directory if it exists")
@@ -249,6 +250,7 @@ def train():
       layer_norm=args.layer_norm,
       src_no_char=args.src_no_char,
       trg_no_char=args.trg_no_char,
+      char_gate=args.char_gate,
     )
   data = DataUtil(hparams=hparams)
   # build or load model
