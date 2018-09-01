@@ -9,7 +9,6 @@ class DataUtil(object):
 
   def __init__(self, hparams, decode=True):
     self.hparams = hparams
-    self.hparams.shuffle_train = False
     self.src_i2w_list = []
     self.src_w2i_list = []
     for i, v_file in enumerate(hparams.src_vocab_list):
@@ -107,11 +106,12 @@ class DataUtil(object):
       if self.hparams.shuffle_train:
         print("Heuristic sort based on source lengths")
         indices = np.argsort(train_x_lens)
-        self.train_x = [self.train_x[idx] for idx in indices]
-        self.train_y = [self.train_y[idx] for idx in indices]
-        self.train_x_char_kv = [self.train_x_char_kv[idx] for idx in indices]
-        self.train_y_char_kv = [self.train_y_char_kv[idx] for idx in indices]
-        self.file_idx = [self.file_idx[idx] for idx in indices] 
+        self.train_x = [[self.train_x[idx] for idx in indices]]
+        self.train_y = [[self.train_y[idx] for idx in indices]]
+        self.train_x_char_kv = [[self.train_x_char_kv[idx] for idx in indices]]
+        self.train_y_char_kv = [[self.train_y_char_kv[idx] for idx in indices]]
+        self.file_idx = [[self.file_idx[idx] for idx in indices]]
+        self.train_size = [sum(self.train_size)]
       self.reset_train()
     else:
       #test_src_file = os.path.join(self.hparams.data_path, self.hparams.test_src_file)
@@ -209,39 +209,40 @@ class DataUtil(object):
     for n_train_batches in self.n_train_batches:
       self.train_queue.append(np.random.permutation(n_train_batches))
     self.train_index = 0
-    self.train_file_index = 0
+    self.train_data_index = 0
 
   def next_train(self):
-    file_idx = self.train_file_index
+    data_idx = self.train_data_index
     if self.hparams.batcher == "word":
-      start_index = self.start_indices[file_idx][self.train_queue[file_idx][self.train_index]]
-      end_index = self.end_indices[file_idx][self.train_queue[file_idx][self.train_index]]
+      start_index = self.start_indices[data_idx][self.train_queue[data_idx][self.train_index]]
+      end_index = self.end_indices[data_idx][self.train_queue[data_idx][self.train_index]]
     elif self.hparams.batcher == "sent":
-      start_index = (self.train_queue[file_idx][self.train_index] * self.hparams.batch_size)
-      end_index = min(start_index + self.hparams.batch_size, self.train_size[file_idx])
+      start_index = (self.train_queue[data_idx][self.train_index] * self.hparams.batch_size)
+      end_index = min(start_index + self.hparams.batch_size, self.train_size[data_idx])
     else:
       print("unknown batcher")
       exit(1)
 
-    x_train = self.train_x[file_idx][start_index:end_index]
-    y_train = self.train_y[file_idx][start_index:end_index]
-    if self.hparams.sample_rl and file_idx != 0:
+    x_train = self.train_x[data_idx][start_index:end_index]
+    y_train = self.train_y[data_idx][start_index:end_index]
+    train_file_index = self.file_idx[data_idx][start_index:end_index]
+    if self.hparams.sample_rl and data_idx != 0:
       x_train_sample = []
       for x_t in x_train:
         x_train_sample.append([x_t[0]] + [random.randint(3, self.hparams.src_vocab_size-1) for i in range(len(x_t)-2)] + [x_t[-1]])
       x_train = x_train_sample
     if self.hparams.char_ngram_n > 0 or self.hparams.char_input:
-      x_train_char_kv = self.train_x_char_kv[file_idx][start_index:end_index]
-      y_train_char_kv = self.train_y_char_kv[file_idx][start_index:end_index]
-      x_train, y_train, x_train_char_kv, y_train_char_kv = self.sort_by_xlen(x_train, y_train, x_train_char_kv, y_train_char_kv)
+      x_train_char_kv = self.train_x_char_kv[data_idx][start_index:end_index]
+      y_train_char_kv = self.train_y_char_kv[data_idx][start_index:end_index]
+      x_train, y_train, x_train_char_kv, y_train_char_kv, train_file_index = self.sort_by_xlen(x_train, y_train, x_train_char_kv, y_train_char_kv, train_file_index)
     else:
-      x_train, y_train = self.sort_by_xlen(x_train, y_train)
+      x_train, y_train, train_file_index = self.sort_by_xlen(x_train, y_train, train_file_index)
 
     self.train_index += 1
     batch_size = len(x_train)
     y_count = sum([len(y) for y in y_train])
-    if self.train_index >= self.n_train_batches[file_idx]:
-      self.train_file_index += 1
+    if self.train_index >= self.n_train_batches[data_idx]:
+      self.train_data_index += 1
       self.train_index = 0
     # pad 
     if self.hparams.char_ngram_n > 0:
@@ -255,12 +256,12 @@ class DataUtil(object):
       x_train, x_mask, x_count, x_len = self._pad(x_train, self.hparams.pad_id)
       y_train, y_mask, y_count, y_len = self._pad(y_train, self.hparams.pad_id)
 
-    if self.train_file_index >= len(self.train_x):
+    if self.train_data_index >= len(self.train_x):
       self.reset_train()
       eop = True
     else:
       eop = False
-    return x_train, x_mask, x_count, x_len, y_train, y_mask, y_count, y_len, batch_size, x_train_char, y_train_char, eop, file_idx 
+    return x_train, x_mask, x_count, x_len, y_train, y_mask, y_count, y_len, batch_size, x_train_char, y_train_char, eop, train_file_index 
 
   def next_dev(self, dev_batch_size=10):
     start_index = self.dev_index
@@ -323,7 +324,7 @@ class DataUtil(object):
 
     return x_test, x_mask, x_count, x_len, y_test, y_mask, y_count, y_len, batch_size, eop, x_test_char, y_test_char
 
-  def sort_by_xlen(self, x, y, x_char_kv=None, y_char_kv=None):
+  def sort_by_xlen(self, x, y, x_char_kv=None, y_char_kv=None, file_index=None):
     x = np.array(x)
     y = np.array(y)
     x_len = [len(i) for i in x]
@@ -332,6 +333,10 @@ class DataUtil(object):
     if x_char_kv:
       x_char_kv, y_char_kv = np.array(x_char_kv), np.array(y_char_kv)
       x_char_kv, y_char_kv = x_char_kv[index].tolist(), y_char_kv[index].tolist()
+      if file_index:
+        file_index = np.array(file_index)
+        file_index = file_index[index].tolist()
+        return x, y, x_char_kv, y_char_kv, file_index
       return x, y, x_char_kv, y_char_kv
     return x, y
 

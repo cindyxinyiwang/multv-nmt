@@ -283,15 +283,16 @@ class sembEncoder(nn.Module):
       if self.hparams.cuda: self.layer_norm = self.layer_norm.cuda()
 
     if self.hparams.sep_char_proj:
-      #self.sep_proj_list = []
-      #for i in range(len(self.hparams.train_file_list)):
-      #  self.sep_proj_list.append(nn.Linear(self.hparams.d_word_vec, self.hparams.d_word_vec, bias=False))
-      #  if self.hparams.cuda: self.sep_proj_list[-1] = self.sep_proj_list[-1].cuda()
-      self.sep_proj_0 = nn.Linear(self.hparams.d_word_vec, self.hparams.d_word_vec, bias=False)
-      self.sep_proj_1 = nn.Linear(self.hparams.d_word_vec, self.hparams.d_word_vec, bias=False)
-      if self.hparams.cuda: 
-        self.sep_proj_0 = self.sep_proj_0.cuda()
-        self.sep_proj_1 = self.sep_proj_1.cuda()
+      self.sep_proj_list = []
+      for i in range(len(self.hparams.train_src_file_list)):
+        self.sep_proj_list.append(nn.Linear(self.hparams.d_word_vec, self.hparams.d_word_vec, bias=False))
+      self.sep_proj_list = nn.ModuleList(self.sep_proj_list)
+      if self.hparams.cuda: self.sep_proj_list = self.sep_proj_list.cuda()
+      #self.sep_proj_0 = nn.Linear(self.hparams.d_word_vec, self.hparams.d_word_vec, bias=False)
+      #self.sep_proj_1 = nn.Linear(self.hparams.d_word_vec, self.hparams.d_word_vec, bias=False)
+      #if self.hparams.cuda: 
+      #  self.sep_proj_0 = self.sep_proj_0.cuda()
+      #  self.sep_proj_1 = self.sep_proj_1.cuda()
  
     d_word_vec = self.hparams.d_word_vec
     self.layer = nn.LSTM(d_word_vec, 
@@ -329,10 +330,7 @@ class sembEncoder(nn.Module):
           x_char_sent_in = x_char_sent
         if self.hparams.sep_char_proj:
           assert file_idx is not None
-          if file_idx == 0:
-            x_char_sent = torch.tanh(self.sep_proj_0(x_char_sent))
-          elif file_idx == 1:
-            x_char_sent = torch.tanh(self.sep_proj_1(x_char_sent))
+          x_char_sent = torch.tanh(self.sep_proj_list[file_idx[idx]](x_char_sent))
         if self.hparams.residue:
           x_char_sent = x_char_sent + x_char_sent_in
         if self.hparams.layer_norm:
@@ -683,7 +681,7 @@ class Seq2Seq(nn.Module):
     assert len(x_train.size()) == 1
     x_len = [x_train.size(0)]
     x_train = x_train.unsqueeze(0)
-    x_enc, dec_init = self.encoder(x_train, x_len, x_train_char, file_idx=0)
+    x_enc, dec_init = self.encoder(x_train, x_len, x_train_char, file_idx=[0])
     x_enc_k = self.enc_to_k(x_enc)
     #x_enc_k = x_enc
     length = 0
