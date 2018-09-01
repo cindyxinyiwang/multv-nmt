@@ -30,6 +30,7 @@ parser.add_argument("--layer_norm", action="store_true", help="whether to set al
 parser.add_argument("--src_no_char", action="store_true", help="load an existing model")
 parser.add_argument("--trg_no_char", action="store_true", help="load an existing model")
 parser.add_argument("--char_gate", action="store_true", help="load an existing model")
+parser.add_argument("--shuffle_train", action="store_true", help="load an existing model")
 
 parser.add_argument("--load_model", action="store_true", help="load an existing model")
 parser.add_argument("--reset_output_dir", action="store_true", help="delete output directory if it exists")
@@ -142,7 +143,7 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
 
     logits = model.forward(
       x_valid, x_mask, x_len,
-      y_valid[:,:-1], y_mask[:,:-1], y_len, x_valid_char_sparse, y_valid_char_sparse, file_idx=0)
+      y_valid[:,:-1], y_mask[:,:-1], y_len, x_valid_char_sparse, y_valid_char_sparse, file_idx=[0 for _ in range(batch_size)])
     logits = logits.view(-1, hparams.trg_vocab_size)
     labels = y_valid[:,1:].contiguous().view(-1)
     val_loss, val_acc = get_performance(crit, logits, labels, hparams)
@@ -255,6 +256,7 @@ def train():
       src_no_char=args.src_no_char,
       trg_no_char=args.trg_no_char,
       char_gate=args.char_gate,
+      shuffle_train=args.shuffle_train,
     )
   data = DataUtil(hparams=hparams)
   # build or load model
