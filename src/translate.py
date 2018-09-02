@@ -108,8 +108,9 @@ if args.debug:
 else:
   y_test = None
 #print(x_test)
-hyps = model.translate(
-      x_test, beam_size=args.beam_size, max_len=args.max_len, poly_norm_m=args.poly_norm_m, x_train_char=data.test_x_char, y_train_char=data.test_y_char)
+with torch.no_grad():
+  hyps = model.translate(
+        x_test, beam_size=args.beam_size, max_len=args.max_len, poly_norm_m=args.poly_norm_m, x_train_char=data.test_x_char, y_train_char=data.test_y_char)
 
 if args.debug:
   forward_scores = []
