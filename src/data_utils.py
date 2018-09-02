@@ -55,10 +55,10 @@ class DataUtil(object):
       self.trg_char_i2w, self.trg_char_w2i = self._build_char_vocab_from(self.hparams.trg_char_vocab_from, self.hparams.trg_char_vocab_size)
       self.src_char_vsize, self.trg_char_vsize = len(self.src_char_i2w), len(self.trg_char_i2w)
 
-      print(self.src_char_i2w)
-      print(self.src_char_w2i)
-      print(self.trg_char_i2w)
-      print(self.trg_char_w2i)
+      #print(self.src_char_i2w)
+      #print(self.src_char_w2i)
+      #print(self.trg_char_i2w)
+      #print(self.trg_char_w2i)
 
       setattr(self.hparams, 'src_char_vsize', self.src_char_vsize)
       setattr(self.hparams, 'trg_char_vsize', self.trg_char_vsize)
@@ -583,15 +583,17 @@ class DataUtil(object):
     vfile_list = vocab_file_list.split(",")
     vsize_list = [int(s) for s in vocab_size_list.split(",")]
     if self.hparams.ordered_char_dict:
-      i2w = [ '<unk>'] 
+      i2w = [ '<unk>']
+      i2w_set = set(i2w) 
       for vfile, size in zip(vfile_list, vsize_list):
         cur_vsize = 0
         with open(vfile, 'r', encoding='utf-8') as f:
           for line in f:
             w = line.strip()
-            if w not in i2w:
+            if w not in i2w_set:
               i2w.append(w)
               cur_vsize += 1
+              i2w_set.add(w)
               if size > 0 and cur_vsize > size: break
     else:
       i2w_sets = []
