@@ -31,6 +31,7 @@ parser.add_argument("--src_no_char", action="store_true", help="load an existing
 parser.add_argument("--trg_no_char", action="store_true", help="load an existing model")
 parser.add_argument("--char_gate", action="store_true", help="load an existing model")
 parser.add_argument("--shuffle_train", action="store_true", help="load an existing model")
+parser.add_argument("--ordered_char_dict", action="store_true", help="load an existing model")
 
 parser.add_argument("--load_model", action="store_true", help="load an existing model")
 parser.add_argument("--reset_output_dir", action="store_true", help="delete output directory if it exists")
@@ -257,6 +258,7 @@ def train():
       trg_no_char=args.trg_no_char,
       char_gate=args.char_gate,
       shuffle_train=args.shuffle_train,
+      ordered_char_dict=args.ordered_char_dict,
     )
   data = DataUtil(hparams=hparams)
   # build or load model

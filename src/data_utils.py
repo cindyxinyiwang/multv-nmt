@@ -33,7 +33,6 @@ class DataUtil(object):
       if i == 0:
         self.hparams.trg_vocab_size = len(i2w)
         print("setting trg_vocab_size to {}...".format(self.hparams.trg_vocab_size))
-    
     if self.hparams.char_ngram_n > 0 or self.hparams.char_input:
       #if hasattr(self.hparams, "src_char_vocab_from") and self.hparams.src_char_vocab_from:
       #  src, trg = self.hparams.src_char_vocab_from, self.hparams.trg_char_vocab_from
@@ -51,9 +50,11 @@ class DataUtil(object):
       #  self.src_char_i2w, self.src_char_w2i = self._build_char_vocab(src_lines, self.hparams.char_input)
       #  self.trg_char_i2w, self.trg_char_w2i = self._build_char_vocab(trg_lines, self.hparams.char_input)
       #self.src_char_vsize, self.trg_char_vsize = len(self.src_char_i2w), len(self.trg_char_i2w)
+
       self.src_char_i2w, self.src_char_w2i = self._build_char_vocab_from(self.hparams.src_char_vocab_from, self.hparams.src_char_vocab_size)
       self.trg_char_i2w, self.trg_char_w2i = self._build_char_vocab_from(self.hparams.trg_char_vocab_from, self.hparams.trg_char_vocab_size)
       self.src_char_vsize, self.trg_char_vsize = len(self.src_char_i2w), len(self.trg_char_i2w)
+
       setattr(self.hparams, 'src_char_vsize', self.src_char_vsize)
       setattr(self.hparams, 'trg_char_vsize', self.trg_char_vsize)
       print("src_char_vsize={} trg_char_vsize={}".format(self.src_char_vsize, self.trg_char_vsize))
@@ -545,7 +546,6 @@ class DataUtil(object):
               i2w.append(char)
               if max_char_vocab_size and len(i2w) >= max_char_vocab_size: 
                 return i2w, w2i
-
     return i2w, w2i
 
   def _build_vocab(self, vocab_file, max_vocab_size=None):
@@ -577,22 +577,35 @@ class DataUtil(object):
   def _build_char_vocab_from(self, vocab_file_list, vocab_size_list):
     vfile_list = vocab_file_list.split(",")
     vsize_list = [int(s) for s in vocab_size_list.split(",")]
-    i2w_sets = []
-    for vfile, size in zip(vfile_list, vsize_list):
-      i2w = []
-      with open(vfile, 'r', encoding='utf-8') as f:
-        for line in f:
-          w = line.strip()
-          if w == '<unk>' or w == '<pad>' or w == '<s>' or w == '<\s>': continue
-          i2w.append(w)
-          if size > 0 and len(i2w) > size: break 
-      i2w_sets.append(set(i2w))
-    i2w_set = set([])
-    for s in i2w_sets:
-      i2w_set = i2w_set | s
-    i2w = ['<pad>', '<unk>', '<s>', '<\s>'] + list(i2w_set)
+    if self.hparams.ordered_char_dict:
+      i2w = ['<pad>', '<unk>', '<s>', '<\s>'] 
+      for vfile, size in zip(vfile_list, vsize_list):
+        cur_vsize = 0
+        with open(vfile, 'r', encoding='utf-8') as f:
+          for line in f:
+            w = line.strip()
+            if w not in i2w:
+              i2w.append(w)
+              cur_vsize += 1
+              if size > 0 and cur_vsize > size: break
+    else:
+      i2w_sets = []
+      for vfile, size in zip(vfile_list, vsize_list):
+        i2w = []
+        with open(vfile, 'r', encoding='utf-8') as f:
+          for line in f:
+            w = line.strip()
+            if w == '<unk>': continue
+            i2w.append(w)
+            if size > 0 and len(i2w) > size: break 
+        i2w_sets.append(set(i2w))
+      i2w_set = set([])
+      for s in i2w_sets:
+        i2w_set = i2w_set | s
+      i2w = ['<unk>'] + list(i2w_set)
+
     w2i = {}
     for i, w in enumerate(i2w):
-      w2i[i] = w
+      w2i[w] = i
     return i2w, w2i
 
