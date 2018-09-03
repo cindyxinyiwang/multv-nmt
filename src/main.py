@@ -108,6 +108,7 @@ parser.add_argument("--char_temp", type=float, default=None, help="temperature t
 parser.add_argument("--pretrained_model", type=str, default=None, help="location of pretrained model")
 
 parser.add_argument("--src_char_only", action="store_true", help="only use char emb on src")
+parser.add_argument("--trg_char_only", action="store_true", help="only use char emb on trg")
 args = parser.parse_args()
 
 def eval(model, data, crit, step, hparams, eval_bleu=False,
@@ -245,6 +246,7 @@ def train():
       trg_char_vocab_from=args.trg_char_vocab_from,
       trg_char_vocab_size=args.trg_char_vocab_size,
       src_char_only=args.src_char_only,
+      trg_char_only=args.trg_char_only,
       semb=args.semb,
       dec_semb=args.dec_semb,
       semb_vsize=args.semb_vsize,
