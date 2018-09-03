@@ -28,3 +28,7 @@ class HParams(object):
       self.src_vocab_list = self.src_vocab_list.split(',')
     if hasattr(self, 'trg_vocab_list') and type(self.trg_vocab_list) == str:
       self.trg_vocab_list = self.trg_vocab_list.split(',')
+    if hasattr(self, 'out_c_list') and type(self.out_c_list) == str:
+      self.out_c_list = [int(c) for c in self.out_c_list.split(',')]
+    if hasattr(self, 'k_list') and type(self.k_list) == str:
+      self.k_list = [int(c) for c in self.k_list.split(',')]

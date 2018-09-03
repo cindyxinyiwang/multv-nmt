@@ -256,39 +256,95 @@ class MultiHeadAttn(nn.Module):
 
     return outputs
 
-class sembEncoder(nn.Module):
-  def __init__(self, hparams, emb=None, *args, **kwargs):
-    super(sembEncoder, self).__init__()
+class charEmbedder(nn.Module):
+  def __init__(self, hparams, char_vsize, trg=False, *args, **kwargs):
+    super(charEmbedder, self).__init__()
 
     self.hparams = hparams
-    #print("d_word_vec", self.hparams.d_word_vec)
-    #self.word_emb = nn.Embedding(self.hparams.src_vocab_size,
-    #                             self.hparams.d_word_vec,
-    #                             padding_idx=hparams.pad_id)
-    if self.hparams.semb_vsize is None:
-      self.hparams.semb_vsize = self.hparams.src_vocab_size 
-    self.word_emb = QueryEmb(self.hparams, self.hparams.semb_vsize, emb=emb)
-
+    self.trg = trg
     if self.hparams.char_ngram_n > 0:
-      self.char_emb_proj = nn.Linear(self.hparams.src_char_vsize, self.hparams.d_word_vec, bias=False)
+      self.char_emb_proj = nn.Linear(char_vsize, self.hparams.d_word_vec, bias=False)
       if self.hparams.cuda:
         self.char_emb_proj = self.char_emb_proj.cuda()
     elif self.hparams.char_input:
-      self.char_emb = nn.Embedding(self.hparams.src_char_vsize, self.hparams.d_word_vec, padding_idx=hparams.pad_id)
+      self.char_emb = nn.Embedding(char_vsize, self.hparams.d_char_vec, padding_idx=hparams.pad_id)
       if self.hparams.cuda:
         self.char_emb = self.char_emb.cuda()
-
-    if self.hparams.layer_norm:
-      self.layer_norm = LayerNormalization(d_hid=self.hparams.d_word_vec)
-      if self.hparams.cuda: self.layer_norm = self.layer_norm.cuda()
-
-    if self.hparams.sep_char_proj:
+      if self.hparams.char_input == 'cnn':
+        # in: (batch_size, d_char_vec, char_len); out: (batch_size, out_channels, char_len_out)
+        self.conv_list = []
+        assert sum(self.hparams.out_c_list) == self.hparams.d_word_vec
+        for out_c, k in zip(self.hparams.out_c_list, self.hparams.k_list):
+          self.conv_list.append(nn.Conv1d(self.hparams.d_char_vec, out_channels=out_c, kernel_size=k, padding=k // 2))
+        self.conv_list = nn.ModuleList(self.conv_list)
+        if self.hparams.cuda: self.conv_list = self.conv_list.cuda()
+        # global max pool using functional
+        # in: (batch_size, out_channels, char_len_out); out: (batch_size, out_channels, 1)
+    if self.hparams.sep_char_proj and not trg:
       self.sep_proj_list = []
       for i in range(len(self.hparams.train_src_file_list)):
         self.sep_proj_list.append(nn.Linear(self.hparams.d_word_vec, self.hparams.d_word_vec, bias=False))
       self.sep_proj_list = nn.ModuleList(self.sep_proj_list)
       if self.hparams.cuda: self.sep_proj_list = self.sep_proj_list.cuda()
  
+
+  def forward(self, x_train_char, file_idx=None):
+    """Performs a forward pass.
+    Args:
+    Returns:
+    """
+    if self.hparams.char_ngram_n > 0:
+      for idx, x_char_sent in enumerate(x_train_char):
+        emb = Variable(x_char_sent.to_dense(), requires_grad=False)
+        if self.hparams.cuda: emb = emb.cuda()
+        x_char_sent = torch.tanh(self.char_emb_proj(emb))
+        if self.hparams.residue:
+          x_char_sent_in = x_char_sent
+        if self.hparams.sep_char_proj and not self.trg:
+          assert file_idx is not None
+          x_char_sent = torch.tanh(self.sep_proj_list[file_idx[idx]](x_char_sent))
+        if self.hparams.residue:
+          x_char_sent = x_char_sent + x_char_sent_in
+        if self.hparams.layer_norm:
+          x_char_sent = self.layer_norm(x_char_sent)
+        x_train_char[idx] = x_char_sent
+      if not self.hparams.semb == 'mlp':
+        char_emb = torch.stack(x_train_char, dim=0)
+      else:
+        char_emb = x_train_char
+    elif self.hparams.char_input == 'sum':
+      # [batch_size, max_len, char_len, d_word_vec]
+      char_emb = self.char_emb(x_train_char)
+      char_emb = char_emb.sum(dim=2)
+    elif self.hparams.char_input == 'cnn':
+      # [batch_size, max_len, char_len, d_char_vec]
+      char_emb = self.char_emb(x_train_char)
+      batch_size, max_len, char_len, d_word_vec = char_emb.size()
+      # [batch_size*max_len, d_char_vec, char_len]
+      char_emb = char_emb.view(-1, char_len, d_word_vec).permute(0, 2, 1)
+      conv_out = []
+      for conv in self.conv_list:
+        # [batch_size*max_len, out_channel, char_len_out]
+        c = conv(char_emb)
+        c = F.max_pool1d(c, kernel_size=c.size(2)).squeeze(2)
+        conv_out.append(c)
+      # [batch_size*max_len, d_word_vec]
+      char_emb = torch.cat(conv_out, dim=-1).view(batch_size, max_len, -1)
+    return char_emb
+
+class sembEncoder(nn.Module):
+  def __init__(self, hparams, emb=None, *args, **kwargs):
+    super(sembEncoder, self).__init__()
+
+    self.hparams = hparams
+    if self.hparams.semb_vsize is None:
+      self.hparams.semb_vsize = self.hparams.src_vocab_size 
+    self.word_emb = QueryEmb(self.hparams, self.hparams.semb_vsize, emb=emb)
+
+    self.char_emb = charEmbedder(self.hparams, char_vsize=self.hparams.src_char_vsize)
+    if self.hparams.layer_norm:
+      self.layer_norm = LayerNormalization(d_hid=self.hparams.d_word_vec)
+      if self.hparams.cuda: self.layer_norm = self.layer_norm.cuda()
     d_word_vec = self.hparams.d_word_vec
     self.layer = nn.LSTM(d_word_vec, 
                          self.hparams.d_model, 
@@ -316,32 +372,8 @@ class sembEncoder(nn.Module):
       enc_output: Tensor of size [batch_size, max_len, d_model].
     """
     batch_size, max_len = x_train.size()
-    if self.hparams.char_ngram_n > 0:
-      for idx, x_char_sent in enumerate(x_train_char):
-        emb = Variable(x_char_sent.to_dense(), requires_grad=False)
-        if self.hparams.cuda: emb = emb.cuda()
-        x_char_sent = torch.tanh(self.char_emb_proj(emb))
-        if self.hparams.residue:
-          x_char_sent_in = x_char_sent
-        if self.hparams.sep_char_proj:
-          assert file_idx is not None
-          x_char_sent = torch.tanh(self.sep_proj_list[file_idx[idx]](x_char_sent))
-        if self.hparams.residue:
-          x_char_sent = x_char_sent + x_char_sent_in
-        if self.hparams.layer_norm:
-          x_char_sent = self.layer_norm(x_char_sent)
-        x_train_char[idx] = x_char_sent
-      if not self.hparams.semb == 'mlp':
-        char_emb = torch.stack(x_train_char, dim=0)
-      else:
-        char_emb = x_train_char
-    elif self.hparams.char_input == 'sum':
-      # [batch_size, max_len, char_len, d_word_vec]
-      char_emb = self.char_emb(x_train_char)
-      char_emb = char_emb.sum(dim=2)
-    elif self.hparams.char_input == 'cnn':
-      # [batch_size, max_len, char_len, d_word_vec]
-      char_emb = self.char_emb(x_train_char)
+
+    char_emb = self.char_emb(x_train_char, file_idx=file_idx)
     word_emb = self.word_emb(char_emb, x_train, file_idx=file_idx)
     word_emb = self.dropout(word_emb).permute(1, 0, 2)
     packed_word_emb = pack_padded_sequence(word_emb, x_len)
@@ -353,9 +385,6 @@ class sembEncoder(nn.Module):
     dec_init_state = F.tanh(dec_init_cell)
     dec_init = (dec_init_state, dec_init_cell)
 
-    #dec_init_cell = torch.cat([ct[0], ct[1]], 1)
-    #dec_init_state = F.tanh(dec_init_cell)
-    #dec_init = (dec_init_state, dec_init_cell)
     return enc_output, dec_init
 
 class Encoder(nn.Module):
@@ -369,21 +398,25 @@ class Encoder(nn.Module):
                                    self.hparams.d_word_vec,
                                    padding_idx=hparams.pad_id)
 
-    if self.hparams.char_ngram_n > 0:
-      self.char_emb_proj = nn.Linear(self.hparams.src_char_vsize, self.hparams.d_word_vec, bias=False)
-      if self.hparams.cuda:
-        self.char_emb_proj = self.char_emb_proj.cuda()
-    elif self.hparams.char_input:
-      self.char_emb = nn.Embedding(self.hparams.src_char_vsize, self.hparams.d_word_vec, padding_idx=hparams.pad_id)
-      if self.hparams.cuda:
-        self.char_emb = self.char_emb.cuda()
+    if self.hparams.char_ngram_n > 0 or self.hparams.char_input:
+      self.char_emb = charEmbedder(self.hparams, char_vsize=self.hparams.src_char_vsize)
+    else:
+      self.char_emb = None
+    #if self.hparams.char_ngram_n > 0:
+    #  self.char_emb_proj = nn.Linear(self.hparams.src_char_vsize, self.hparams.d_word_vec, bias=False)
+    #  if self.hparams.cuda:
+    #    self.char_emb_proj = self.char_emb_proj.cuda()
+    #elif self.hparams.char_input:
+    #  self.char_emb = nn.Embedding(self.hparams.src_char_vsize, self.hparams.d_word_vec, padding_idx=hparams.pad_id)
+    #  if self.hparams.cuda:
+    #    self.char_emb = self.char_emb.cuda()
 
-    if self.hparams.sep_char_proj:
-      self.sep_proj_list = []
-      for i in range(len(self.hparams.train_src_file_list)):
-        self.sep_proj_list.append(nn.Linear(self.hparams.d_word_vec, self.hparams.d_word_vec, bias=False))
-      self.sep_proj_list = nn.ModuleList(self.sep_proj_list)
-      if self.hparams.cuda: self.sep_proj_list = self.sep_proj_list.cuda()
+    #if self.hparams.sep_char_proj:
+    #  self.sep_proj_list = []
+    #  for i in range(len(self.hparams.train_src_file_list)):
+    #    self.sep_proj_list.append(nn.Linear(self.hparams.d_word_vec, self.hparams.d_word_vec, bias=False))
+    #  self.sep_proj_list = nn.ModuleList(self.sep_proj_list)
+    #  if self.hparams.cuda: self.sep_proj_list = self.sep_proj_list.cuda()
      
     if self.hparams.char_comb == "add":
       d_word_vec = self.hparams.d_word_vec
@@ -419,21 +452,13 @@ class Encoder(nn.Module):
     batch_size, max_len = x_train.size()
     # [batch_size, max_len, d_word_vec]
     if self.hparams.src_char_only:
-      word_emb = Variable(torch.zeros(max_len, batch_size, self.hparams.d_word_vec), requires_grad=False)
+      word_emb = Variable(torch.zeros(batch_size, max_len, self.hparams.d_word_vec), requires_grad=False)
       if self.hparams.cuda: word_emb = word_emb.cuda()
     else:
-      word_emb = self.word_emb(x_train.transpose(0, 1))
+      word_emb = self.word_emb(x_train)
       word_emb = self.dropout(word_emb)
-    if self.hparams.char_ngram_n > 0:
-      for idx, x_char_sent in enumerate(x_train_char):
-        emb = Variable(x_char_sent.to_dense(), requires_grad=False)
-        if self.hparams.cuda: emb = emb.cuda()
-        x_char_sent = torch.tanh(self.char_emb_proj(emb))
-        if self.hparams.sep_char_proj:
-          assert file_idx is not None
-          x_char_sent = torch.tanh(self.sep_proj_list[file_idx[idx]](x_char_sent))
-        x_train_char[idx] = x_char_sent
-      char_emb = torch.stack(x_train_char, dim=0).permute(1, 0, 2)
+    if self.char_emb:
+      char_emb = self.char_emb(x_train_char, file_idx=file_idx)
       if self.hparams.char_comb == 'add':
         if not self.hparams.char_temp:
           word_emb = word_emb + char_emb
@@ -443,20 +468,39 @@ class Encoder(nn.Module):
           word_emb = word_emb + char_emb * self.hparams.char_temp
       elif self.hparams.char_comb == 'cat':
         word_emb = torch.cat([word_emb, char_emb], dim=-1)
-    elif self.hparams.char_input:
-      # [batch_size, max_len, char_len, d_word_vec]
-      char_emb = self.char_emb(x_train_char.permute(1, 0, 2))
-      char_emb = char_emb.sum(dim=2)
-      if self.hparams.char_comb == 'add':
-        if not self.hparams.char_temp:
-          word_emb = word_emb + char_emb
-        elif self.hparams.char_temp < 1:
-          word_emb = word_emb * (1-self.hparams.char_temp) + char_emb * self.hparams.char_temp
-        elif self.hparams.char_temp > 1:
-          word_emb = word_emb + char_emb * self.hparams.char_temp
-      elif self.hparams.char_comb == 'cat':
-        word_emb = torch.cat([word_emb, char_emb], dim=-1)
-
+    #if self.hparams.char_ngram_n > 0:
+    #  for idx, x_char_sent in enumerate(x_train_char):
+    #    emb = Variable(x_char_sent.to_dense(), requires_grad=False)
+    #    if self.hparams.cuda: emb = emb.cuda()
+    #    x_char_sent = torch.tanh(self.char_emb_proj(emb))
+    #    if self.hparams.sep_char_proj:
+    #      assert file_idx is not None
+    #      x_char_sent = torch.tanh(self.sep_proj_list[file_idx[idx]](x_char_sent))
+    #    x_train_char[idx] = x_char_sent
+    #  char_emb = torch.stack(x_train_char, dim=0).permute(1, 0, 2)
+    #  if self.hparams.char_comb == 'add':
+    #    if not self.hparams.char_temp:
+    #      word_emb = word_emb + char_emb
+    #    elif self.hparams.char_temp < 1:
+    #      word_emb = word_emb * (1-self.hparams.char_temp) + char_emb * self.hparams.char_temp
+    #    elif self.hparams.char_temp > 1:
+    #      word_emb = word_emb + char_emb * self.hparams.char_temp
+    #  elif self.hparams.char_comb == 'cat':
+    #    word_emb = torch.cat([word_emb, char_emb], dim=-1)
+    #elif self.hparams.char_input:
+    #  # [batch_size, max_len, char_len, d_word_vec]
+    #  char_emb = self.char_emb(x_train_char.permute(1, 0, 2))
+    #  char_emb = char_emb.sum(dim=2)
+    #  if self.hparams.char_comb == 'add':
+    #    if not self.hparams.char_temp:
+    #      word_emb = word_emb + char_emb
+    #    elif self.hparams.char_temp < 1:
+    #      word_emb = word_emb * (1-self.hparams.char_temp) + char_emb * self.hparams.char_temp
+    #    elif self.hparams.char_temp > 1:
+    #      word_emb = word_emb + char_emb * self.hparams.char_temp
+    #  elif self.hparams.char_comb == 'cat':
+    #    word_emb = torch.cat([word_emb, char_emb], dim=-1)
+    word_emb = word_emb.permute(1, 0, 2)
     packed_word_emb = pack_padded_sequence(word_emb, x_len)
     enc_output, (ht, ct) = self.layer(packed_word_emb)
     enc_output, _ = pad_packed_sequence(enc_output,  padding_value=self.hparams.pad_id)
@@ -466,9 +510,6 @@ class Encoder(nn.Module):
     dec_init_state = F.tanh(dec_init_cell)
     dec_init = (dec_init_state, dec_init_cell)
 
-    #dec_init_cell = torch.cat([ct[0], ct[1]], 1)
-    #dec_init_state = F.tanh(dec_init_cell)
-    #dec_init = (dec_init_state, dec_init_cell)
     return enc_output, dec_init
 
 class Decoder(nn.Module):
@@ -487,14 +528,18 @@ class Decoder(nn.Module):
                                    self.hparams.d_word_vec,
                                    padding_idx=hparams.pad_id)
       if self.hparams.cuda: self.word_emb = self.word_emb.cuda()
-    if self.hparams.char_ngram_n > 0:
-      self.char_emb_proj = nn.Linear(self.hparams.trg_char_vsize, self.hparams.d_word_vec, bias=False)
-      if self.hparams.cuda:
-        self.char_emb_proj = self.char_emb_proj.cuda()
-    elif self.hparams.char_input:
-      self.char_emb = nn.Embedding(self.hparams.trg_char_vsize, self.hparams.d_word_vec, padding_idx=hparams.pad_id)
-      if self.hparams.cuda:
-        self.char_emb = self.char_emb.cuda()
+    #if self.hparams.char_ngram_n > 0:
+    #  self.char_emb_proj = nn.Linear(self.hparams.trg_char_vsize, self.hparams.d_word_vec, bias=False)
+    #  if self.hparams.cuda:
+    #    self.char_emb_proj = self.char_emb_proj.cuda()
+    #elif self.hparams.char_input:
+    #  self.char_emb = nn.Embedding(self.hparams.trg_char_vsize, self.hparams.d_word_vec, padding_idx=hparams.pad_id)
+    #  if self.hparams.cuda:
+    #    self.char_emb = self.char_emb.cuda()
+    if self.hparams.char_ngram_n > 0 or self.hparams.char_input:
+      self.char_emb = charEmbedder(self.hparams, char_vsize=self.hparams.trg_char_vsize, trg=True)
+    else:
+      self.char_emb = None
 
     if self.hparams.char_comb == "add":
       d_word_vec = self.hparams.d_word_vec
@@ -535,41 +580,50 @@ class Decoder(nn.Module):
     else:
       trg_emb = Variable(torch.zeros(batch_size, y_max_len, self.hparams.d_word_vec), requires_grad=False)
       if self.hparams.cuda: trg_emb = trg_emb.cuda()
-    if hasattr(self.hparams, 'trg_no_char') and self.hparams.trg_no_char:
-        pass
-    else:
-      if self.hparams.char_ngram_n > 0:
-        for idx, y_char_sent in enumerate(y_train_char):
-          emb = Variable(y_char_sent.to_dense(), requires_grad=False)[:-1,:]
-          if self.hparams.cuda: emb = emb.cuda()
-          y_char_sent = torch.tanh(self.char_emb_proj(emb))
-          y_train_char[idx] = y_char_sent
-        char_emb = torch.stack(y_train_char, dim=0)
-        if self.hparams.char_comb == 'add':
-          if not self.hparams.char_temp:
-            trg_emb = trg_emb + char_emb
-          elif hasattr(self.harams, 'char_gate') and self.hparams.char_gate:
-            g = F.sigmoid(self.char_gate(torch.cat([ctx, q], dim=-1)))
-            ctx = ctx * g + q * (1-g)
-          elif self.hparams.char_temp < 1:
-            trg_emb = trg_emb * (1-self.hparams.char_temp) + char_emb * self.hparams.char_temp
-          elif self.hparams.char_temp > 1:
-            trg_emb = trg_emb + char_emb * self.hparams.char_temp
-        elif self.hparams.char_comb == 'cat':
-          trg_emb = torch.cat([trg_emb, char_emb], dim=-1)
-      elif self.hparams.char_input:
-        # [batch_size, max_len, char_len, d_word_vec]
-        char_emb = self.char_emb(y_train_char)
-        char_emb = char_emb.sum(dim=2)[:,:-1,:]
-        if self.hparams.char_comb == 'add':
-          if not self.hparams.char_temp:
-            trg_emb = trg_emb + char_emb
-          elif self.hparams.char_temp < 1:
-            trg_emb = trg_emb * (1-self.hparams.char_temp) + char_emb * self.hparams.char_temp
-          elif self.hparams_char_temp > 1:
-            trg_emb = trg_emb + char_emb * self.hparams.char_temp
-        elif self.hparams.char_comb == 'cat':
-          trg_emb = torch.cat([trg_emb, char_emb], dim=-1)
+    if self.hparams.char_ngram_n > 0 or self.hparams.char_input is not None:
+      char_emb = self.char_emb(y_train_char)[:,:-1,:]
+      if self.hparams.char_comb == 'add':
+        if not self.hparams.char_temp:
+          trg_emb = trg_emb + char_emb
+        elif self.hparams.char_temp < 1:
+          trg_emb = trg_emb * (1-self.hparams.char_temp) + char_emb * self.hparams.char_temp
+        elif self.hparams.char_temp > 1:
+          trg_emb = trg_emb + char_emb * self.hparams.char_temp
+      elif self.hparams.char_comb == 'cat':
+        trg_emb = torch.cat([trg_emb, char_emb], dim=-1)
+
+      #if self.hparams.char_ngram_n > 0:
+      #  for idx, y_char_sent in enumerate(y_train_char):
+      #    emb = Variable(y_char_sent.to_dense(), requires_grad=False)[:-1,:]
+      #    if self.hparams.cuda: emb = emb.cuda()
+      #    y_char_sent = torch.tanh(self.char_emb_proj(emb))
+      #    y_train_char[idx] = y_char_sent
+      #  char_emb = torch.stack(y_train_char, dim=0)
+      #  if self.hparams.char_comb == 'add':
+      #    if not self.hparams.char_temp:
+      #      trg_emb = trg_emb + char_emb
+      #    elif hasattr(self.harams, 'char_gate') and self.hparams.char_gate:
+      #      g = F.sigmoid(self.char_gate(torch.cat([ctx, q], dim=-1)))
+      #      ctx = ctx * g + q * (1-g)
+      #    elif self.hparams.char_temp < 1:
+      #      trg_emb = trg_emb * (1-self.hparams.char_temp) + char_emb * self.hparams.char_temp
+      #    elif self.hparams.char_temp > 1:
+      #      trg_emb = trg_emb + char_emb * self.hparams.char_temp
+      #  elif self.hparams.char_comb == 'cat':
+      #    trg_emb = torch.cat([trg_emb, char_emb], dim=-1)
+      #elif self.hparams.char_input:
+      #  # [batch_size, max_len, char_len, d_word_vec]
+      #  char_emb = self.char_emb(y_train_char)
+      #  char_emb = char_emb.sum(dim=2)[:,:-1,:]
+      #  if self.hparams.char_comb == 'add':
+      #    if not self.hparams.char_temp:
+      #      trg_emb = trg_emb + char_emb
+      #    elif self.hparams.char_temp < 1:
+      #      trg_emb = trg_emb * (1-self.hparams.char_temp) + char_emb * self.hparams.char_temp
+      #    elif self.hparams_char_temp > 1:
+      #      trg_emb = trg_emb + char_emb * self.hparams.char_temp
+      #  elif self.hparams.char_comb == 'cat':
+      #    trg_emb = torch.cat([trg_emb, char_emb], dim=-1)
 
     pre_readouts = []
     logits = []
@@ -590,24 +644,30 @@ class Decoder(nn.Module):
     return logits
 
   def step(self, x_enc, x_enc_k, y_tm1, dec_state, ctx_t, data):
-    y_emb_tm1 = self.word_emb(y_tm1)
-    if self.hparams.char_ngram_n > 0:
-      emb = data.get_char_emb(y_tm1.item())
-      if self.hparams.cuda: emb = emb.cuda()
-      emb = torch.tanh(self.char_emb_proj(emb))
-      if self.hparams.char_comb == 'add':
-        if not self.hparams.char_temp:
-          y_emb_tm1 = y_emb_tm1 + emb
-        elif self.hparams.char_temp < 1:
-          y_emb_tm1 = y_emb_tm1 * (1 - self.hparams.char_temp) + emb * self.hparams.char_temp
-        elif self.hparams.char_temp > 1:
-          y_emb_tm1 = y_emb_tm1 + emb * self.hparams.char_temp
-      elif self.hparams.char_comb == 'cat':
-        y_emb_tm1 = torch.cat([y_emb_tm1, emb], dim=-1)
-    elif self.hparams.char_input:
-      # [1, char_len]
-      char = data.get_char_emb(y_tm1.item())     
-      emb = self.char_emb(char).sum(dim=1)
+    if self.hparams.trg_char_only:
+      y_emb_tm1 = Variable(torch.zeros( 1, self.d_word_vec), requires_grad=False)
+    else:
+      y_emb_tm1 = self.word_emb(y_tm1)
+    if self.hparams.char_ngram_n > 0 or self.hparams.char_input is not None:
+      char_emb = data.get_char_emb(y_tm1.item())
+      emb = self.char_emb([char_emb]).squeeze(0)
+    #if self.hparams.char_ngram_n > 0:
+    #  emb = data.get_char_emb(y_tm1.item())
+    #  if self.hparams.cuda: emb = emb.cuda()
+    #  emb = torch.tanh(self.char_emb_proj(emb))
+    #  if self.hparams.char_comb == 'add':
+    #    if not self.hparams.char_temp:
+    #      y_emb_tm1 = y_emb_tm1 + emb
+    #    elif self.hparams.char_temp < 1:
+    #      y_emb_tm1 = y_emb_tm1 * (1 - self.hparams.char_temp) + emb * self.hparams.char_temp
+    #    elif self.hparams.char_temp > 1:
+    #      y_emb_tm1 = y_emb_tm1 + emb * self.hparams.char_temp
+    #  elif self.hparams.char_comb == 'cat':
+    #    y_emb_tm1 = torch.cat([y_emb_tm1, emb], dim=-1)
+    #elif self.hparams.char_input:
+    #  # [1, char_len]
+    #  char = data.get_char_emb(y_tm1.item())     
+    #  emb = self.char_emb(char).sum(dim=1)
       if self.hparams.char_comb == 'add':
         if not self.hparams.char_temp:
           y_emb_tm1 = y_emb_tm1 + emb
