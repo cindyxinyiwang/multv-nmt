@@ -33,6 +33,9 @@ class DataUtil(object):
       if i == 0:
         self.hparams.trg_vocab_size = len(i2w)
         print("setting trg_vocab_size to {}...".format(self.hparams.trg_vocab_size))
+    while len(self.trg_i2w_list) < len(self.src_i2w_list):
+      self.trg_i2w_list.append(self.trg_i2w_list[-1])
+      self.trg_w2i_list.append(self.trg_w2i_list[-1])
     if self.hparams.char_ngram_n > 0 or self.hparams.char_input:
       #if hasattr(self.hparams, "src_char_vocab_from") and self.hparams.src_char_vocab_from:
       #  src, trg = self.hparams.src_char_vocab_from, self.hparams.trg_char_vocab_from
