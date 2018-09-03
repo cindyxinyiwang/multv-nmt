@@ -36,7 +36,7 @@ class DataUtil(object):
     while len(self.trg_i2w_list) < len(self.src_i2w_list):
       self.trg_i2w_list.append(self.trg_i2w_list[-1])
       self.trg_w2i_list.append(self.trg_w2i_list[-1])
-    if self.hparams.char_ngram_n > 0 or self.hparams.char_input:
+    if self.hparams.char_ngram_n > 0 or self.hparams.char_input is not None:
       #if hasattr(self.hparams, "src_char_vocab_from") and self.hparams.src_char_vocab_from:
       #  src, trg = self.hparams.src_char_vocab_from, self.hparams.trg_char_vocab_from
       #else:
@@ -150,7 +150,7 @@ class DataUtil(object):
         sent_sparse = torch.sparse.FloatTensor(key, val, torch.Size([len(kvs), char_vsize]))
         # (batch_size, max_len, char_dim)
         ret_char.append([sent_sparse])
-    elif self.hparams.char_input:
+    elif self.hparams.char_input is not None:
       #max_char_len = max([len(w) for sent in char_raw for w in sent])
       for char_sent in char_raw:
         max_char_len = max([len(w) for w in char_sent])
@@ -180,8 +180,8 @@ class DataUtil(object):
       key = torch.LongTensor([[0 for _ in range(len(kv.keys()))], list(kv.keys())])
       val = torch.FloatTensor(list(kv.values()))
       ret = torch.sparse.FloatTensor(key, val, torch.Size([1, vsize]))
-    elif self.hparams.char_input > 0:
-      ret = self._get_char(word, i2w, w2i, self.hparams.char_input)
+    elif self.hparams.char_input is not None:
+      ret = self._get_char(word, i2w, w2i, n=2)
       ret = Variable(torch.LongTensor(ret).unsqueeze(0))
       if self.hparams.cuda: ret = ret.cuda()
     return ret
@@ -240,7 +240,7 @@ class DataUtil(object):
       for x_t in x_train:
         x_train_sample.append([x_t[0]] + [random.randint(3, self.hparams.src_vocab_size-1) for i in range(len(x_t)-2)] + [x_t[-1]])
       x_train = x_train_sample
-    if self.hparams.char_ngram_n > 0 or self.hparams.char_input:
+    if self.hparams.char_ngram_n > 0 or self.hparams.char_input is not None:
       x_train_char_kv = self.train_x_char_kv[data_idx][start_index:end_index]
       y_train_char_kv = self.train_y_char_kv[data_idx][start_index:end_index]
       x_train, y_train, x_train_char_kv, y_train_char_kv, train_file_index = self.sort_by_xlen(x_train, y_train, x_train_char_kv, y_train_char_kv, train_file_index)
@@ -257,7 +257,7 @@ class DataUtil(object):
     if self.hparams.char_ngram_n > 0:
       x_train, x_mask, x_count, x_len, x_train_char = self._pad(x_train, self.hparams.pad_id, x_train_char_kv, self.hparams.src_char_vsize)
       y_train, y_mask, y_count, y_len, y_train_char = self._pad(y_train, self.hparams.pad_id, y_train_char_kv, self.hparams.trg_char_vsize)
-    elif self.hparams.char_input:
+    elif self.hparams.char_input is not None:
       x_train, x_mask, x_count, x_len, x_train_char = self._pad(x_train, self.hparams.pad_id, char_sents=x_train_char_kv)
       y_train, y_mask, y_count, y_len, y_train_char = self._pad(y_train, self.hparams.pad_id, char_sents=y_train_char_kv)
     else:
@@ -279,7 +279,7 @@ class DataUtil(object):
 
     x_dev = self.dev_x[start_index:end_index]
     y_dev = self.dev_y[start_index:end_index]
-    if self.hparams.char_ngram_n > 0 or self.hparams.char_input:
+    if self.hparams.char_ngram_n > 0 or self.hparams.char_input is not None:
       x_dev_char_kv = self.dev_x_char_kv[start_index:end_index]
       y_dev_char_kv = self.dev_y_char_kv[start_index:end_index]
       x_dev, y_dev, x_dev_char_kv, y_dev_char_kv = self.sort_by_xlen(x_dev, y_dev, x_dev_char_kv, y_dev_char_kv)
@@ -289,7 +289,7 @@ class DataUtil(object):
     if self.hparams.char_ngram_n > 0:
       x_dev, x_mask, x_count, x_len, x_dev_char_sparse = self._pad(x_dev, self.hparams.pad_id, x_dev_char_kv, self.hparams.src_char_vsize)
       y_dev, y_mask, y_count, y_len, y_dev_char_sparse = self._pad(y_dev, self.hparams.pad_id, y_dev_char_kv, self.hparams.trg_char_vsize)
-    elif self.hparams.char_input:
+    elif self.hparams.char_input is not None:
       x_dev, x_mask, x_count, x_len, x_dev_char_sparse = self._pad(x_dev, self.hparams.pad_id, char_sents=x_dev_char_kv)
       y_dev, y_mask, y_count, y_len, y_dev_char_sparse = self._pad(y_dev, self.hparams.pad_id, char_sents=y_dev_char_kv)
     else:
@@ -426,7 +426,7 @@ class DataUtil(object):
     if self.hparams.char_ngram_n > 0:
       src_char_kv_data = []
       trg_char_kv_data = []
-    elif self.hparams.char_input:
+    elif self.hparams.char_input is not None:
       src_char_data = []
       trg_char_data = []
     src_data = []
@@ -455,7 +455,7 @@ class DataUtil(object):
       src_indices, trg_indices = [self.hparams.bos_id], [self.hparams.bos_id] 
       if self.hparams.char_ngram_n > 0:
           src_char_kv, trg_char_kv = [{0:0}], [{0:0}]
-      elif self.hparams.char_input:
+      elif self.hparams.char_input is not None:
           src_char, trg_char = [[self.hparams.pad_id]], [[self.hparams.pad_id]]
       src_w2i = self.src_w2i_list[i]
       for src_tok in src_tokens:
@@ -471,8 +471,8 @@ class DataUtil(object):
         if self.hparams.char_ngram_n > 0:
           ngram_counts = self._get_ngram_counts(src_tok, self.src_char_i2w, self.src_char_w2i, self.hparams.char_ngram_n)
           src_char_kv.append(ngram_counts)
-        elif self.hparams.char_input > 0:
-          src_char.append(self._get_char(src_tok, self.src_char_i2w, self.src_char_w2i, self.hparams.char_input))
+        elif not self.hparams.char_input is None:
+          src_char.append(self._get_char(src_tok, self.src_char_i2w, self.src_char_w2i, n=1))
 
       trg_w2i = self.trg_w2i_list[i]
       for trg_tok in trg_tokens:
@@ -485,8 +485,8 @@ class DataUtil(object):
         if self.hparams.char_ngram_n > 0:
           ngram_counts = self._get_ngram_counts(trg_tok, self.trg_char_i2w, self.trg_char_w2i, self.hparams.char_ngram_n)
           trg_char_kv.append(ngram_counts)
-        elif self.hparams.char_input > 0:
-          trg_char.append(self._get_char(trg_tok, self.trg_char_i2w, self.trg_char_w2i, self.hparams.char_input))
+        elif self.hparams.char_input is not None:
+          trg_char.append(self._get_char(trg_tok, self.trg_char_i2w, self.trg_char_w2i, n=1))
 
       src_indices.append(self.hparams.eos_id)
       trg_indices.append(self.hparams.eos_id)
@@ -497,7 +497,7 @@ class DataUtil(object):
         trg_char_kv.append({0:0})
         src_char_kv_data.append(src_char_kv)
         trg_char_kv_data.append(trg_char_kv)
-      elif self.hparams.char_input:
+      elif self.hparams.char_input is not None:
         src_char.append([self.hparams.pad_id])
         trg_char.append([self.hparams.pad_id])
         src_char_data.append(src_char)
@@ -511,7 +511,7 @@ class DataUtil(object):
     print("lines={}, skipped_lines={}".format(len(src_data), skip_line_count))
     if self.hparams.char_ngram_n:
       return src_data, trg_data, src_char_kv_data, trg_char_kv_data, src_lens
-    elif self.hparams.char_input:
+    elif self.hparams.char_input is not None:
       return src_data, trg_data, src_char_data, trg_char_data, src_lens
     return src_data, trg_data, None, None, src_lens
 

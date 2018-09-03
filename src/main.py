@@ -32,6 +32,8 @@ parser.add_argument("--trg_no_char", action="store_true", help="load an existing
 parser.add_argument("--char_gate", action="store_true", help="load an existing model")
 parser.add_argument("--shuffle_train", action="store_true", help="load an existing model")
 parser.add_argument("--ordered_char_dict", action="store_true", help="load an existing model")
+parser.add_argument("--out_c_list", type=str, default=None, help="list of output channels for char cnn emb")
+parser.add_argument("--k_list", type=str, default=None, help="list of kernel size for char cnn emb")
 
 parser.add_argument("--load_model", action="store_true", help="load an existing model")
 parser.add_argument("--reset_output_dir", action="store_true", help="delete output directory if it exists")
@@ -54,6 +56,7 @@ parser.add_argument("--max_len", type=int, default=10000, help="maximum len cons
 parser.add_argument("--n_train_sents", type=int, default=None, help="max number of training sentences to load")
 
 parser.add_argument("--d_word_vec", type=int, default=288, help="size of word and positional embeddings")
+parser.add_argument("--d_char_vec", type=int, default=None, help="size of word and positional embeddings")
 parser.add_argument("--d_model", type=int, default=288, help="size of hidden states")
 parser.add_argument("--n_heads", type=int, default=3, help="number of attention heads")
 parser.add_argument("--d_k", type=int, default=64, help="size of attention head")
@@ -100,7 +103,7 @@ parser.add_argument("--reset_hparams", action="store_true", help="whether to rel
 parser.add_argument("--char_ngram_n", type=int, default=0, help="use char_ngram embedding")
 parser.add_argument("--max_char_vocab_size", type=int, default=None, help="char vocab size")
 
-parser.add_argument("--char_input", type=int, default=0, help="whether to prepare character inputs")
+parser.add_argument("--char_input", type=str, default=None, help="[sum|cnn]")
 parser.add_argument("--char_comb", type=str, default="add", help="[cat|add]")
 
 parser.add_argument("--char_temp", type=float, default=None, help="temperature to combine word and char emb")
@@ -261,6 +264,9 @@ def train():
       char_gate=args.char_gate,
       shuffle_train=args.shuffle_train,
       ordered_char_dict=args.ordered_char_dict,
+      out_c_list=args.out_c_list,
+      k_list=args.k_list,
+      d_char_vec=args.d_char_vec,
     )
   data = DataUtil(hparams=hparams)
   # build or load model
