@@ -245,7 +245,7 @@ class DataUtil(object):
       y_train_char_kv = self.train_y_char_kv[data_idx][start_index:end_index]
       x_train, y_train, x_train_char_kv, y_train_char_kv, train_file_index = self.sort_by_xlen(x_train, y_train, x_train_char_kv, y_train_char_kv, train_file_index)
     else:
-      x_train, y_train, train_file_index = self.sort_by_xlen(x_train, y_train, train_file_index)
+      x_train, y_train, train_file_index = self.sort_by_xlen(x_train, y_train,file_index=train_file_index)
 
     self.train_index += 1
     batch_size = len(x_train)
@@ -270,6 +270,11 @@ class DataUtil(object):
       eop = True
     else:
       eop = False
+    #print(x_train)
+    #print(x_mask)
+    #print(y_train)
+    #print(y_mask)
+    #exit(0)
     return x_train, x_mask, x_count, x_len, y_train, y_mask, y_count, y_len, batch_size, x_train_char, y_train_char, eop, train_file_index 
 
   def next_dev(self, dev_batch_size=10):
@@ -339,15 +344,20 @@ class DataUtil(object):
     x_len = [len(i) for i in x]
     index = np.argsort(x_len)[::-1]
     x, y = x[index].tolist(), y[index].tolist()
+    if file_index:
+      file_index = np.array(file_index)
+      file_index = file_index[index].tolist()
     if x_char_kv:
       x_char_kv, y_char_kv = np.array(x_char_kv), np.array(y_char_kv)
       x_char_kv, y_char_kv = x_char_kv[index].tolist(), y_char_kv[index].tolist()
       if file_index:
-        file_index = np.array(file_index)
-        file_index = file_index[index].tolist()
         return x, y, x_char_kv, y_char_kv, file_index
-      return x, y, x_char_kv, y_char_kv
-    return x, y
+      else:
+        return x, y, x_char_kv, y_char_kv
+    if file_index:
+      return x, y, file_index
+    else:
+      return x, y
 
   def _pad(self, sentences, pad_id, char_kv=None, char_dim=None, char_sents=None):
     batch_size = len(sentences)
