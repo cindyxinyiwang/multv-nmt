@@ -646,6 +646,7 @@ class Decoder(nn.Module):
   def step(self, x_enc, x_enc_k, y_tm1, dec_state, ctx_t, data):
     if self.hparams.trg_char_only:
       y_emb_tm1 = Variable(torch.zeros( 1, self.hparams.d_word_vec), requires_grad=False)
+      if self.hparams.cuda: y_emb_tm1 = y_emb_tm1.cuda()
     else:
       y_emb_tm1 = self.word_emb(y_tm1)
     if self.hparams.char_ngram_n > 0 or self.hparams.char_input is not None:
