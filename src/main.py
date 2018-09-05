@@ -34,6 +34,7 @@ parser.add_argument("--shuffle_train", action="store_true", help="load an existi
 parser.add_argument("--ordered_char_dict", action="store_true", help="load an existing model")
 parser.add_argument("--out_c_list", type=str, default=None, help="list of output channels for char cnn emb")
 parser.add_argument("--k_list", type=str, default=None, help="list of kernel size for char cnn emb")
+parser.add_argument("--highway", action="store_true", help="load an existing model")
 
 parser.add_argument("--load_model", action="store_true", help="load an existing model")
 parser.add_argument("--reset_output_dir", action="store_true", help="delete output directory if it exists")
@@ -267,6 +268,7 @@ def train():
       out_c_list=args.out_c_list,
       k_list=args.k_list,
       d_char_vec=args.d_char_vec,
+      highway=args.highway,
     )
   data = DataUtil(hparams=hparams)
   # build or load model

@@ -279,12 +279,14 @@ class charEmbedder(nn.Module):
         self.conv_list = nn.ModuleList(self.conv_list)
         # global max pool using functional
         # in: (batch_size, out_channels, char_len_out); out: (batch_size, out_channels, 1)
-        self.highway_g = nn.Linear(self.hparams.d_word_vec, self.hparams.d_word_vec)
-        self.highway_h = nn.Linear(self.hparams.d_word_vec, self.hparams.d_word_vec)
+        if self.hparams.highway:
+          self.highway_g = nn.Linear(self.hparams.d_word_vec, self.hparams.d_word_vec)
+          self.highway_h = nn.Linear(self.hparams.d_word_vec, self.hparams.d_word_vec)
+          if self.hparams.cuda: 
+            self.highway_g = self.highway_g.cuda()
+            self.highway_h = self.highway_h.cuda()
         if self.hparams.cuda: 
           self.conv_list = self.conv_list.cuda()
-          self.highway_g = self.highway_g.cuda()
-          self.highway_h = self.highway_h.cuda()
     if self.hparams.sep_char_proj and not trg:
       self.sep_proj_list = []
       for i in range(len(self.hparams.train_src_file_list)):
@@ -335,8 +337,18 @@ class charEmbedder(nn.Module):
         conv_out.append(c)
       # [batch_size*max_len, d_word_vec]
       char_emb = torch.cat(conv_out, dim=-1).view(batch_size, max_len, -1)
-      g = F.sigmoid(self.highway_g(char_emb))
-      char_emb = g * F.tanh(self.highway_h(char_emb)) + (1 - g) * char_emb
+      if self.hparams.highway:
+        g = torch.sigmoid(self.highway_g(char_emb))
+        char_emb = g * torch.tanh(self.highway_h(char_emb)) + (1 - g) * char_emb
+      else:
+        char_emb = torch.tanh(char_emb)
+      if self.hparams.sep_char_proj and not self.trg:
+        char_emb = torch.split(char_emb, batch_size, dim=0)
+        proj_list = []
+        for idx, c_emb in enumerate(char_emb):
+          proj_list.append(torch.tanh(self.sep_proj_list[file_idx[idx]](c_emb)))
+        char_emb = torch.cat(proj_list, dim=0)
+
     return char_emb
 
 class sembEncoder(nn.Module):
@@ -569,7 +581,7 @@ class Decoder(nn.Module):
       y_emb_tm1 = self.word_emb(y_tm1)
     if self.hparams.char_ngram_n > 0 or self.hparams.char_input is not None:
       char_emb = data.get_char_emb(y_tm1.item())
-      emb = self.char_emb([char_emb]).squeeze(0)
+      emb = self.char_emb(char_emb).squeeze(0)
       if self.hparams.char_comb == 'add':
         if not self.hparams.char_temp:
           y_emb_tm1 = y_emb_tm1 + emb
@@ -593,8 +605,8 @@ class Seq2Seq(nn.Module):
   def __init__(self, hparams, data):
     super(Seq2Seq, self).__init__()
     if hparams.semb and (not hparams.dec_semb):
-      self.encoder = sembEncoder(hparams)
       self.decoder = Decoder(hparams)
+      self.encoder = sembEncoder(hparams)
     elif hparams.dec_semb:
       self.decoder = Decoder(hparams)
       self.encoder = sembEncoder(hparams, self.decoder.word_emb.weight)

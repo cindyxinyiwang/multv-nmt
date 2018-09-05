@@ -130,7 +130,7 @@ class DataUtil(object):
       self.test_x, self.test_y, self.test_x_char_kv, self.test_y_char_kv, src_len = self._build_parallel(test_src_file, test_trg_file, 0, is_train=False)
       self.test_size = len(self.test_x)
       self.test_index = 0
-      if self.hparams.char_ngram_n > 0:
+      if self.hparams.char_ngram_n > 0 or self.hparams.char_input is not None:
         self.test_x_char = self.get_trans_char(self.test_x_char_kv, self.src_char_vsize)
         self.test_y_char = self.get_trans_char(self.test_y_char_kv, self.trg_char_vsize)
       else:
@@ -179,10 +179,10 @@ class DataUtil(object):
         kv = self._get_ngram_counts(word, i2w, w2i, self.hparams.char_ngram_n)
       key = torch.LongTensor([[0 for _ in range(len(kv.keys()))], list(kv.keys())])
       val = torch.FloatTensor(list(kv.values()))
-      ret = torch.sparse.FloatTensor(key, val, torch.Size([1, vsize]))
+      ret = [torch.sparse.FloatTensor(key, val, torch.Size([1, vsize]))]
     elif self.hparams.char_input is not None:
-      ret = self._get_char(word, i2w, w2i, n=2)
-      ret = Variable(torch.LongTensor(ret).unsqueeze(0))
+      ret = self._get_char(word, i2w, w2i, n=1)
+      ret = Variable(torch.LongTensor(ret).unsqueeze(0).unsqueeze(0))
       if self.hparams.cuda: ret = ret.cuda()
     return ret
 
