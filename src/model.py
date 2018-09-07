@@ -287,6 +287,13 @@ class charEmbedder(nn.Module):
             self.highway_h = self.highway_h.cuda()
         if self.hparams.cuda: 
           self.conv_list = self.conv_list.cuda()
+      elif self.hparams.char_input == 'bi-lstm':
+        self.lstm_layer = nn.LSTM(self.hparams.d_word_vec, 
+                             self.hparams.d_word_vec // 2, 
+                             bidirectional=True, 
+                             dropout=hparams.dropout,
+                             batch_first=True)
+        if self.hparams.cuda: self.lstm_layer = self.lstm_layer.cuda()
     if self.hparams.sep_char_proj and not trg:
       self.sep_proj_list = []
       for i in range(len(self.hparams.train_src_file_list)):
@@ -323,6 +330,18 @@ class charEmbedder(nn.Module):
       # [batch_size, max_len, char_len, d_word_vec]
       char_emb = self.char_emb(x_train_char)
       char_emb = char_emb.sum(dim=2)
+    elif self.hparams.char_input == 'bi-lstm':
+      char_emb = self.char_emb(x_train_char)
+      batch_size, max_len, char_len, d_word_vec = char_emb.size()
+      char_emb = char_emb.view(-1, char_len, d_word_vec)
+      enc, (ht, ct) = self.lstm_layer(char_emb)
+      char_emb = torch.cat([ct[0], ct[1]], 1).view(batch_size, max_len, -1)
+      if self.hparams.sep_char_proj and not self.trg:
+        char_emb = torch.split(char_emb, batch_size, dim=0)
+        proj_list = []
+        for idx, c_emb in enumerate(char_emb):
+          proj_list.append(torch.tanh(self.sep_proj_list[file_idx[idx]](c_emb)))
+        char_emb = torch.cat(proj_list, dim=0)
     elif self.hparams.char_input == 'cnn':
       # [batch_size, max_len, char_len, d_char_vec]
       char_emb = self.char_emb(x_train_char)

@@ -35,6 +35,8 @@ parser.add_argument("--ordered_char_dict", action="store_true", help="load an ex
 parser.add_argument("--out_c_list", type=str, default=None, help="list of output channels for char cnn emb")
 parser.add_argument("--k_list", type=str, default=None, help="list of kernel size for char cnn emb")
 parser.add_argument("--highway", action="store_true", help="load an existing model")
+parser.add_argument("--n", type=int, default=4, help="ngram n")
+parser.add_argument("--single_n", action="store_true", help="ngram n")
 
 parser.add_argument("--load_model", action="store_true", help="load an existing model")
 parser.add_argument("--reset_output_dir", action="store_true", help="delete output directory if it exists")
@@ -269,6 +271,8 @@ def train():
       k_list=args.k_list,
       d_char_vec=args.d_char_vec,
       highway=args.highway,
+      n=args.n,
+      single_n=args.single_n,
     )
   data = DataUtil(hparams=hparams)
   # build or load model
