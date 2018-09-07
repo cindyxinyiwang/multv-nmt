@@ -54,8 +54,8 @@ class DataUtil(object):
       #  self.trg_char_i2w, self.trg_char_w2i = self._build_char_vocab(trg_lines, self.hparams.char_input)
       #self.src_char_vsize, self.trg_char_vsize = len(self.src_char_i2w), len(self.trg_char_i2w)
 
-      self.src_char_i2w, self.src_char_w2i = self._build_char_vocab_from(self.hparams.src_char_vocab_from, self.hparams.src_char_vocab_size)
-      self.trg_char_i2w, self.trg_char_w2i = self._build_char_vocab_from(self.hparams.trg_char_vocab_from, self.hparams.trg_char_vocab_size)
+      self.src_char_i2w, self.src_char_w2i = self._build_char_vocab_from(self.hparams.src_char_vocab_from, self.hparams.src_char_vocab_size, n=self.hparams.n, single_n=self.hparams.single_n)
+      self.trg_char_i2w, self.trg_char_w2i = self._build_char_vocab_from(self.hparams.trg_char_vocab_from, self.hparams.trg_char_vocab_size, n=self.hparams.n, single_n=self.hparams.single_n)
       self.src_char_vsize, self.trg_char_vsize = len(self.src_char_i2w), len(self.trg_char_i2w)
 
       #print(self.src_char_i2w)
@@ -181,7 +181,7 @@ class DataUtil(object):
       val = torch.FloatTensor(list(kv.values()))
       ret = [torch.sparse.FloatTensor(key, val, torch.Size([1, vsize]))]
     elif self.hparams.char_input is not None:
-      ret = self._get_char(word, i2w, w2i, n=1)
+      ret = self._get_char(word, i2w, w2i, n=self.hparams.n)
       ret = Variable(torch.LongTensor(ret).unsqueeze(0).unsqueeze(0))
       if self.hparams.cuda: ret = ret.cuda()
     return ret
@@ -482,7 +482,8 @@ class DataUtil(object):
           ngram_counts = self._get_ngram_counts(src_tok, self.src_char_i2w, self.src_char_w2i, self.hparams.char_ngram_n)
           src_char_kv.append(ngram_counts)
         elif not self.hparams.char_input is None:
-          src_char.append(self._get_char(src_tok, self.src_char_i2w, self.src_char_w2i, n=1))
+          src_char.append(self._get_char(src_tok, self.src_char_i2w,
+            self.src_char_w2i, n=self.hparams.n))
 
       trg_w2i = self.trg_w2i_list[i]
       for trg_tok in trg_tokens:
@@ -496,7 +497,8 @@ class DataUtil(object):
           ngram_counts = self._get_ngram_counts(trg_tok, self.trg_char_i2w, self.trg_char_w2i, self.hparams.char_ngram_n)
           trg_char_kv.append(ngram_counts)
         elif self.hparams.char_input is not None:
-          trg_char.append(self._get_char(trg_tok, self.trg_char_i2w, self.trg_char_w2i, n=1))
+          trg_char.append(self._get_char(trg_tok, self.trg_char_i2w,
+            self.trg_char_w2i, n=self.hparams.n))
 
       src_indices.append(self.hparams.eos_id)
       trg_indices.append(self.hparams.eos_id)
@@ -592,7 +594,8 @@ class DataUtil(object):
     assert w2i['<\s>'] == self.hparams.eos_id
     return i2w, w2i
 
-  def _build_char_vocab_from(self, vocab_file_list, vocab_size_list):
+  def _build_char_vocab_from(self, vocab_file_list, vocab_size_list, n=None,
+      single_n=False):
     vfile_list = vocab_file_list.split(",")
     vsize_list = [int(s) for s in vocab_size_list.split(",")]
     if self.hparams.ordered_char_dict:
@@ -603,6 +606,9 @@ class DataUtil(object):
         with open(vfile, 'r', encoding='utf-8') as f:
           for line in f:
             w = line.strip()
+            if single_n and n and len(w) != n: continue
+            if not single_n and n and len(w) > n: continue 
+            if w == '<unk>' or w == '<pad>' or w == '<s>' or w == '<\s>': continue
             if w not in i2w_set:
               i2w.append(w)
               cur_vsize += 1
@@ -615,7 +621,9 @@ class DataUtil(object):
         with open(vfile, 'r', encoding='utf-8') as f:
           for line in f:
             w = line.strip()
-            if w == '<unk>': continue
+            if single_n and n and len(w) != n: continue
+            if not single_n and n and len(w) > n: continue 
+            if w == '<unk>' or w == '<pad>' or w == '<s>' or w == '<\s>': continue
             i2w.append(w)
             if size > 0 and len(i2w) > size: break 
         i2w_sets.append(set(i2w))
