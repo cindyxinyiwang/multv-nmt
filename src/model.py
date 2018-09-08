@@ -263,9 +263,17 @@ class charEmbedder(nn.Module):
     self.hparams = hparams
     self.trg = trg
     if self.hparams.char_ngram_n > 0:
-      self.char_emb_proj = nn.Linear(char_vsize, self.hparams.d_word_vec, bias=False)
-      if self.hparams.cuda:
-        self.char_emb_proj = self.char_emb_proj.cuda()
+      if self.hparams.d_char_vec is not None:
+        #self.char_down_proj = nn.Linear(char_vsize, self.hparams.d_char_vec, bias=False)
+        #self.char_emb_proj = nn.Linear(self.hparams.d_char_vec, self.hparams.d_word_vec, bias=False)
+        self.char_emb_proj = nn.Linear(char_vsize, self.hparams.d_char_vec, bias=False)
+        if self.hparams.cuda:
+          #self.char_down_proj = self.char_down_proj.cuda()
+          self.char_emb_proj = self.char_emb_proj.cuda()
+      else:
+        self.char_emb_proj = nn.Linear(char_vsize, self.hparams.d_word_vec, bias=False)
+        if self.hparams.cuda:
+          self.char_emb_proj = self.char_emb_proj.cuda()
     elif self.hparams.char_input:
       self.char_emb = nn.Embedding(char_vsize, self.hparams.d_char_vec, padding_idx=hparams.pad_id)
       if self.hparams.cuda:
@@ -290,10 +298,15 @@ class charEmbedder(nn.Module):
     if self.hparams.sep_char_proj and not trg:
       self.sep_proj_list = []
       for i in range(len(self.hparams.train_src_file_list)):
-        self.sep_proj_list.append(nn.Linear(self.hparams.d_word_vec, self.hparams.d_word_vec, bias=False))
+        if self.hparams.d_char_vec is not None:
+          self.sep_proj_list.append(nn.Linear(self.hparams.d_char_vec, self.hparams.d_word_vec, bias=False))
+        else:
+          self.sep_proj_list.append(nn.Linear(self.hparams.d_word_vec, self.hparams.d_word_vec, bias=False))
       self.sep_proj_list = nn.ModuleList(self.sep_proj_list)
       if self.hparams.cuda: self.sep_proj_list = self.sep_proj_list.cuda()
- 
+    elif trg and self.hparams.d_char_vec:
+      self.trg_proj = nn.Linear(self.hparams.d_char_vec, self.hparams.d_word_vec, bias=False)
+      if self.hparams.cuda: self.trg_proj = self.trg_proj.cuda()
 
   def forward(self, x_train_char, file_idx=None):
     """Performs a forward pass.
@@ -304,12 +317,17 @@ class charEmbedder(nn.Module):
       for idx, x_char_sent in enumerate(x_train_char):
         emb = Variable(x_char_sent.to_dense(), requires_grad=False)
         if self.hparams.cuda: emb = emb.cuda()
+        #if self.hparams.d_char_vec is not None:
+        #  emb = self.char_down_proj(emb)
         x_char_sent = torch.tanh(self.char_emb_proj(emb))
         if self.hparams.residue:
           x_char_sent_in = x_char_sent
         if self.hparams.sep_char_proj and not self.trg:
           assert file_idx is not None
           x_char_sent = torch.tanh(self.sep_proj_list[file_idx[idx]](x_char_sent))
+        elif self.trg and self.hparams.d_char_vec:
+          x_char_sent = torch.tanh(self.trg_proj(x_char_sent))
+
         if self.hparams.residue:
           x_char_sent = x_char_sent + x_char_sent_in
         if self.hparams.layer_norm:
