@@ -262,7 +262,7 @@ class charEmbedder(nn.Module):
 
     self.hparams = hparams
     self.trg = trg
-    if self.hparams.char_ngram_n > 0:
+    if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
       if self.hparams.d_char_vec is not None:
         #self.char_down_proj = nn.Linear(char_vsize, self.hparams.d_char_vec, bias=False)
         #self.char_emb_proj = nn.Linear(self.hparams.d_char_vec, self.hparams.d_word_vec, bias=False)
@@ -320,7 +320,7 @@ class charEmbedder(nn.Module):
     Args:
     Returns:
     """
-    if self.hparams.char_ngram_n > 0:
+    if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
       for idx, x_char_sent in enumerate(x_train_char):
         emb = Variable(x_char_sent.to_dense(), requires_grad=False)
         if self.hparams.cuda: emb = emb.cuda()
@@ -454,7 +454,7 @@ class Encoder(nn.Module):
                                    self.hparams.d_word_vec,
                                    padding_idx=hparams.pad_id)
 
-    if self.hparams.char_ngram_n > 0 or self.hparams.char_input:
+    if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram or self.hparams.char_input:
       self.char_emb = charEmbedder(self.hparams, char_vsize=self.hparams.src_char_vsize)
     else:
       self.char_emb = None
@@ -538,7 +538,8 @@ class Decoder(nn.Module):
                                    self.hparams.d_word_vec,
                                    padding_idx=hparams.pad_id)
       if self.hparams.cuda: self.word_emb = self.word_emb.cuda()
-    if self.hparams.char_ngram_n > 0 or self.hparams.char_input:
+
+    if not self.hparams.trg_no_char and (self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram or self.hparams.char_input):
       self.char_emb = charEmbedder(self.hparams, char_vsize=self.hparams.trg_char_vsize, trg=True)
     else:
       self.char_emb = None
@@ -580,7 +581,8 @@ class Decoder(nn.Module):
     else:
       trg_emb = Variable(torch.zeros(batch_size, y_max_len, self.hparams.d_word_vec), requires_grad=False)
       if self.hparams.cuda: trg_emb = trg_emb.cuda()
-    if self.hparams.char_ngram_n > 0 or self.hparams.char_input is not None:
+    #if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram or self.hparams.char_input is not None:
+    if self.char_emb is not None:
       char_emb = self.char_emb(y_train_char)[:,:-1,:]
       if self.hparams.char_comb == 'add':
         if not self.hparams.char_temp:
@@ -616,7 +618,8 @@ class Decoder(nn.Module):
       if self.hparams.cuda: y_emb_tm1 = y_emb_tm1.cuda()
     else:
       y_emb_tm1 = self.word_emb(y_tm1)
-    if self.hparams.char_ngram_n > 0 or self.hparams.char_input is not None:
+    #if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram or self.hparams.char_input is not None:
+    if self.char_emb is not None:
       char_emb = data.get_char_emb(y_tm1.item())
       emb = self.char_emb(char_emb).squeeze(0)
       if self.hparams.char_comb == 'add':
