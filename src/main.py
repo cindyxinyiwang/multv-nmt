@@ -37,6 +37,7 @@ parser.add_argument("--k_list", type=str, default=None, help="list of kernel siz
 parser.add_argument("--highway", action="store_true", help="load an existing model")
 parser.add_argument("--n", type=int, default=4, help="ngram n")
 parser.add_argument("--single_n", action="store_true", help="ngram n")
+parser.add_argument("--bpe_ngram", action="store_true", help="bpe ngram")
 
 parser.add_argument("--load_model", action="store_true", help="load an existing model")
 parser.add_argument("--reset_output_dir", action="store_true", help="delete output directory if it exists")
@@ -116,6 +117,8 @@ parser.add_argument("--pretrained_model", type=str, default=None, help="location
 parser.add_argument("--src_char_only", action="store_true", help="only use char emb on src")
 parser.add_argument("--trg_char_only", action="store_true", help="only use char emb on trg")
 args = parser.parse_args()
+
+if args.bpe_ngram: args.n = None
 
 def eval(model, data, crit, step, hparams, eval_bleu=False,
          valid_batch_size=20, tr_logits=None):
@@ -273,12 +276,13 @@ def train():
       highway=args.highway,
       n=args.n,
       single_n=args.single_n,
+      bpe_ngram=args.bpe_ngram,
     )
-  data = DataUtil(hparams=hparams)
   # build or load model
   print("-" * 80)
   print("Creating model")
   if args.load_model:
+    data = DataUtil(hparams=hparams)
     model_file_name = os.path.join(args.output_dir, "model.pt")
     print("Loading model from '{0}'".format(model_file_name))
     model = torch.load(model_file_name)
@@ -297,15 +301,37 @@ def train():
     step, best_val_ppl, best_val_bleu, cur_attempt, lr = torch.load(extra_file_name)
   else:
     if args.pretrained_model:
-      print("Loading model from '{0}'".format(args.pretrained_model))
-      model = torch.load(args.pretrained_model)
-      if not hasattr(model, 'data'):
-        model.data = data
-      if not hasattr(model, 'char_ngram_n'):
-        model.hparams.char_ngram_n = 0
-      if not hasattr(model, 'char_input'):
-        model.hparams.char_input = None
+      model_name = os.path.join(args.pretrained_model, "model.pt")
+      print("Loading model from '{0}'".format(model_name))
+      model = torch.load(model_name)
+      #if not hasattr(model, 'data'):
+      #  model.data = data
+      #if not hasattr(model, 'char_ngram_n'):
+      #  model.hparams.char_ngram_n = 0
+      #if not hasattr(model, 'char_input'):
+      #  model.hparams.char_input = None
+      print("load hparams..")
+      hparams_file_name = os.path.join(args.pretrained_model, "hparams.pt")
+      reload_hparams = torch.load(hparams_file_name)
+      reload_hparams.train_src_file_list = hparams.train_src_file_list
+      reload_hparams.train_trg_file_list = hparams.train_trg_file_list
+      reload_hparams.dropout = hparams.dropout
+      reload_hparams.lr_dec = hparams.lr_dec
+      hparams = reload_hparams
+      #hparams.src_vocab_list = reload_hparams.src_vocab_list 
+      #hparams.src_vocab_size = reload_hparams.src_vocab_size 
+      #hparams.trg_vocab_list = reload_hparams.trg_vocab_list 
+      #hparams.trg_vocab_size = reload_hparams.trg_vocab_size 
+      #hparams.src_char_vocab_from = reload_hparams.src_char_vocab_from 
+      #hparams.src_char_vocab_size = reload_hparams.src_char_vocab_size 
+      #hparams.trg_char_vocab_from = reload_hparams.trg_char_vocab_from 
+      #hparams.trg_char_vocab_size = reload_hparams.trg_char_vocab_size
+      #print(reload_hparams.src_char_vocab_from)
+      #print(reload_hparams.src_char_vocab_size)
+      data = DataUtil(hparams=hparams)
+      model.data = data
     else:
+      data = DataUtil(hparams=hparams)
       model = Seq2Seq(hparams=hparams, data=data)
       if args.init_type == "uniform":
         print("initialize uniform with range {}".format(args.init_range))

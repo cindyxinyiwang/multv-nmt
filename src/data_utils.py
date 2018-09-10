@@ -36,7 +36,7 @@ class DataUtil(object):
     while len(self.trg_i2w_list) < len(self.src_i2w_list):
       self.trg_i2w_list.append(self.trg_i2w_list[-1])
       self.trg_w2i_list.append(self.trg_w2i_list[-1])
-    if self.hparams.char_ngram_n > 0 or self.hparams.char_input is not None:
+    if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram or self.hparams.char_input is not None:
       #if hasattr(self.hparams, "src_char_vocab_from") and self.hparams.src_char_vocab_from:
       #  src, trg = self.hparams.src_char_vocab_from, self.hparams.trg_char_vocab_from
       #else:
@@ -71,8 +71,8 @@ class DataUtil(object):
       setattr(self.hparams, 'src_char_vsize', None)
       setattr(self.hparams, 'trg_char_vsize', None)
     if not self.hparams.decode:
-      assert len(self.src_i2w_list) == len(self.hparams.train_src_file_list)
-      assert len(self.trg_i2w_list) == len(self.hparams.train_trg_file_list)
+      assert len(self.src_i2w_list) >= len(self.hparams.train_src_file_list)
+      assert len(self.trg_i2w_list) >= len(self.hparams.train_trg_file_list)
       self.train_x = []
       self.train_y = []
 
@@ -130,7 +130,7 @@ class DataUtil(object):
       self.test_x, self.test_y, self.test_x_char_kv, self.test_y_char_kv, src_len = self._build_parallel(test_src_file, test_trg_file, 0, is_train=False)
       self.test_size = len(self.test_x)
       self.test_index = 0
-      if self.hparams.char_ngram_n > 0 or self.hparams.char_input is not None:
+      if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram or self.hparams.char_input is not None:
         self.test_x_char = self.get_trans_char(self.test_x_char_kv, self.src_char_vsize)
         self.test_y_char = self.get_trans_char(self.test_y_char_kv, self.trg_char_vsize)
       else:
@@ -138,7 +138,7 @@ class DataUtil(object):
   
   def get_trans_char(self, char_raw, char_vsize):
     ret_char = []
-    if self.hparams.char_ngram_n > 0:
+    if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
       for kvs in char_raw:
         key, val = [], []
         sent_sparse = []
@@ -172,11 +172,13 @@ class DataUtil(object):
     else:
       w2i, i2w, vsize = self.src_char_w2i, self.src_char_i2w, self.hparams.src_char_vsize
       word = self.src_i2w_list[0][word_idx]
-    if self.hparams.char_ngram_n > 0:
+    if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
       if word_idx == self.hparams.bos_id or word_idx == self.hparams.eos_id:
         kv = {0:0}
-      else:
+      elif self.hparams.char_ngram_n:
         kv = self._get_ngram_counts(word, i2w, w2i, self.hparams.char_ngram_n)
+      elif self.hparams.bpe_ngram:
+        kv = self._get_bpe_ngram_counts(word, i2w, w2i)
       key = torch.LongTensor([[0 for _ in range(len(kv.keys()))], list(kv.keys())])
       val = torch.FloatTensor(list(kv.values()))
       ret = [torch.sparse.FloatTensor(key, val, torch.Size([1, vsize]))]
@@ -240,7 +242,7 @@ class DataUtil(object):
       for x_t in x_train:
         x_train_sample.append([x_t[0]] + [random.randint(3, self.hparams.src_vocab_size-1) for i in range(len(x_t)-2)] + [x_t[-1]])
       x_train = x_train_sample
-    if self.hparams.char_ngram_n > 0 or self.hparams.char_input is not None:
+    if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram or self.hparams.char_input is not None:
       x_train_char_kv = self.train_x_char_kv[data_idx][start_index:end_index]
       y_train_char_kv = self.train_y_char_kv[data_idx][start_index:end_index]
       x_train, y_train, x_train_char_kv, y_train_char_kv, train_file_index = self.sort_by_xlen(x_train, y_train, x_train_char_kv, y_train_char_kv, train_file_index)
@@ -254,7 +256,7 @@ class DataUtil(object):
       self.train_data_index += 1
       self.train_index = 0
     # pad 
-    if self.hparams.char_ngram_n > 0:
+    if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
       x_train, x_mask, x_count, x_len, x_train_char = self._pad(x_train, self.hparams.pad_id, x_train_char_kv, self.hparams.src_char_vsize)
       y_train, y_mask, y_count, y_len, y_train_char = self._pad(y_train, self.hparams.pad_id, y_train_char_kv, self.hparams.trg_char_vsize)
     elif self.hparams.char_input is not None:
@@ -284,14 +286,14 @@ class DataUtil(object):
 
     x_dev = self.dev_x[start_index:end_index]
     y_dev = self.dev_y[start_index:end_index]
-    if self.hparams.char_ngram_n > 0 or self.hparams.char_input is not None:
+    if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram or self.hparams.char_input is not None:
       x_dev_char_kv = self.dev_x_char_kv[start_index:end_index]
       y_dev_char_kv = self.dev_y_char_kv[start_index:end_index]
       x_dev, y_dev, x_dev_char_kv, y_dev_char_kv = self.sort_by_xlen(x_dev, y_dev, x_dev_char_kv, y_dev_char_kv)
     else:
       x_dev, y_dev = self.sort_by_xlen(x_dev, y_dev)
 
-    if self.hparams.char_ngram_n > 0:
+    if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
       x_dev, x_mask, x_count, x_len, x_dev_char_sparse = self._pad(x_dev, self.hparams.pad_id, x_dev_char_kv, self.hparams.src_char_vsize)
       y_dev, y_mask, y_count, y_len, y_dev_char_sparse = self._pad(y_dev, self.hparams.pad_id, y_dev_char_kv, self.hparams.trg_char_vsize)
     elif self.hparams.char_input is not None:
@@ -318,10 +320,10 @@ class DataUtil(object):
 
     x_test = self.test_x[start_index:end_index]
     y_test = self.test_y[start_index:end_index]
-    if self.hparams.char_ngram_n > 0:
+    if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram or self.hparams.char_input is not None:
       x_test_char_kv = self.test_x_char_kv[start_index:end_index]
       y_test_char_kv = self.test_y_char_kv[start_index:end_index]
-    if self.hparams.char_ngram_n > 0:
+    if self.hparams.char_ngram_n > 0 or self.hparams.ngram_n or self.hparams.char_input is not None:
       x_test, x_mask, x_count, x_len, x_test_char = self._pad(x_test, self.pad_id, x_test_char_kv, self.hparams.src_char_vsize)
       y_test, y_mask, y_count, y_len, y_test_char = self._pad(y_test, self.pad_id, y_test_char_kv, self.hparams.trg_char_vsize)
     else:
@@ -426,6 +428,21 @@ class DataUtil(object):
         count[ngram] += 1
     return count
 
+  def _get_bpe_ngram_counts(self, word, i2w, w2i):
+    count = {}
+    word = "▁" + word
+    n = len(word)
+    for i in range(len(word)):
+      for j in range(i+1, min(len(word), i+n)+1):
+        ngram = word[i:j]
+        if ngram in w2i:
+          ngram = w2i[ngram]
+        else:
+          ngram = 0
+        if ngram not in count: count[ngram] = 0
+        count[ngram] += 1
+    return count
+
 
   def _build_parallel(self, src_file_name, trg_file_name, i, is_train=True):
     print("loading parallel sentences from {} {} with vocab {}".format(src_file_name, trg_file_name, i))
@@ -433,7 +450,7 @@ class DataUtil(object):
       src_lines = f.read().split('\n')
     with open(trg_file_name, 'r', encoding='utf-8') as f:
       trg_lines = f.read().split('\n')
-    if self.hparams.char_ngram_n > 0:
+    if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
       src_char_kv_data = []
       trg_char_kv_data = []
     elif self.hparams.char_input is not None:
@@ -463,7 +480,7 @@ class DataUtil(object):
       
       src_lens.append(len(src_tokens))
       src_indices, trg_indices = [self.hparams.bos_id], [self.hparams.bos_id] 
-      if self.hparams.char_ngram_n > 0:
+      if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
           src_char_kv, trg_char_kv = [{0:0}], [{0:0}]
       elif self.hparams.char_input is not None:
           src_char, trg_char = [[self.hparams.pad_id]], [[self.hparams.pad_id]]
@@ -481,6 +498,9 @@ class DataUtil(object):
         if self.hparams.char_ngram_n > 0:
           ngram_counts = self._get_ngram_counts(src_tok, self.src_char_i2w, self.src_char_w2i, self.hparams.char_ngram_n)
           src_char_kv.append(ngram_counts)
+        elif self.hparams.bpe_ngram:
+          ngram_counts = self._get_bpe_ngram_counts(src_tok, self.src_char_i2w, self.src_char_w2i)
+          src_char_kv.append(ngram_counts)
         elif not self.hparams.char_input is None:
           src_char.append(self._get_char(src_tok, self.src_char_i2w,
             self.src_char_w2i, n=self.hparams.n))
@@ -496,6 +516,9 @@ class DataUtil(object):
         if self.hparams.char_ngram_n > 0:
           ngram_counts = self._get_ngram_counts(trg_tok, self.trg_char_i2w, self.trg_char_w2i, self.hparams.char_ngram_n)
           trg_char_kv.append(ngram_counts)
+        elif self.hparams.bpe_ngram:
+          ngram_counts = self._get_bpe_ngram_counts(trg_tok, self.trg_char_i2w, self.trg_char_w2i)
+          trg_char_kv.append(ngram_counts)
         elif self.hparams.char_input is not None:
           trg_char.append(self._get_char(trg_tok, self.trg_char_i2w,
             self.trg_char_w2i, n=self.hparams.n))
@@ -504,7 +527,7 @@ class DataUtil(object):
       trg_indices.append(self.hparams.eos_id)
       src_data.append(src_indices)
       trg_data.append(trg_indices)
-      if self.hparams.char_ngram_n > 0:
+      if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
         src_char_kv.append({0:0})
         trg_char_kv.append({0:0})
         src_char_kv_data.append(src_char_kv)
@@ -521,7 +544,7 @@ class DataUtil(object):
     print("src_unk={}, trg_unk={}".format(src_unk_count, trg_unk_count))
     assert len(src_data) == len(trg_data)
     print("lines={}, skipped_lines={}".format(len(src_data), skip_line_count))
-    if self.hparams.char_ngram_n:
+    if self.hparams.char_ngram_n or self.hparams.bpe_ngram:
       return src_data, trg_data, src_char_kv_data, trg_char_kv_data, src_lens
     elif self.hparams.char_input is not None:
       return src_data, trg_data, src_char_data, trg_char_data, src_lens
