@@ -32,3 +32,5 @@ class HParams(object):
       self.out_c_list = [int(c) for c in self.out_c_list.split(',')]
     if hasattr(self, 'k_list') and type(self.k_list) == str:
       self.k_list = [int(c) for c in self.k_list.split(',')]
+    if hasattr(self, 'pretrained_src_emb_list') and type(self.pretrained_src_emb_list) == str:
+      self.pretrained_src_emb_list = self.pretrained_src_emb_list.split(',')

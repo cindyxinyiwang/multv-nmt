@@ -36,24 +36,16 @@ class DataUtil(object):
     while len(self.trg_i2w_list) < len(self.src_i2w_list):
       self.trg_i2w_list.append(self.trg_i2w_list[-1])
       self.trg_w2i_list.append(self.trg_w2i_list[-1])
-    if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram or self.hparams.char_input is not None:
-      #if hasattr(self.hparams, "src_char_vocab_from") and self.hparams.src_char_vocab_from:
-      #  src, trg = self.hparams.src_char_vocab_from, self.hparams.trg_char_vocab_from
-      #else:
-      #  src, trg = self.hparams.train_src_file_list[0], self.hparams.train_trg_file_list[0]
-      #print("build trg char vocab from  {}".format(src, trg))
-      #with open(src, 'r', encoding='utf-8') as f:
-      #  src_lines = f.read().split('\n')
-      #with open(trg, 'r', encoding='utf-8') as f:
-      #  trg_lines = f.read().split('\n') 
-      #if self.hparams.char_ngram_n > 0:
-      #  self.src_char_i2w, self.src_char_w2i = self._build_char_ngram_vocab(src_lines, self.hparams.char_ngram_n, self.hparams.max_char_vocab_size)
-      #  self.trg_char_i2w, self.trg_char_w2i = self._build_char_ngram_vocab(trg_lines, self.hparams.char_ngram_n, self.hparams.max_char_vocab_size)
-      #elif self.hparams.char_input > 0:
-      #  self.src_char_i2w, self.src_char_w2i = self._build_char_vocab(src_lines, self.hparams.char_input)
-      #  self.trg_char_i2w, self.trg_char_w2i = self._build_char_vocab(trg_lines, self.hparams.char_input)
-      #self.src_char_vsize, self.trg_char_vsize = len(self.src_char_i2w), len(self.trg_char_i2w)
 
+    if hasattr(self.hparams, 'uni') and self.hparams.uni:
+      self.pretrained_src_emb_list = []
+      self.pretrained_trg_emb = None
+      for i, emb_file in enumerate(self.hparams.pretrained_src_emb_list):
+        emb = self.load_pretrained(emb_file, self.src_w2i_list[i])
+        self.pretrained_src_emb_list.append(emb)
+      self.pretrained_trg_emb = self.load_pretrained(self.hparams.pretrained_trg_emb, self.trg_w2i_list[0])
+      
+    if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram or self.hparams.char_input is not None:
       self.src_char_i2w, self.src_char_w2i = self._build_char_vocab_from(self.hparams.src_char_vocab_from, self.hparams.src_char_vocab_size, n=self.hparams.n, single_n=self.hparams.single_n)
       self.trg_char_i2w, self.trg_char_w2i = self._build_char_vocab_from(self.hparams.trg_char_vocab_from, self.hparams.trg_char_vocab_size, n=self.hparams.n, single_n=self.hparams.single_n)
       self.src_char_vsize, self.trg_char_vsize = len(self.src_char_i2w), len(self.trg_char_i2w)
@@ -136,6 +128,20 @@ class DataUtil(object):
       else:
         self.test_x_char, self.test_y_char = None, None
   
+  def load_pretrained(self, pretrained_emb_file, w2i):
+    f = open(pretrained_emb_file, 'r', encoding='utf-8')
+    header = f.readline().split(' ')
+    count = int(header[0])
+    dim = int(header[1])
+    matrix = np.zeros((len(w2i), dim), dtype=np.float32)
+    for i in range(count):
+      word, vec = f.readline().split(' ', 1)
+      if not word in w2i:
+        print("{} no in vocab".format(word))
+        continue
+      matrix[w2i[word]] = np.fromstring(vec, sep=' ', dtype=np.float32) 
+    return torch.FloatTensor(matrix)
+
   def get_trans_char(self, char_raw, char_vsize):
     ret_char = []
     if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
