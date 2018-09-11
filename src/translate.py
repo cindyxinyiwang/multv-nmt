@@ -86,6 +86,12 @@ else:
   hparams.src_char_only = False
 if not hasattr(train_hparams, 'n') and (train_hparams.char_ngram_n or train_hparams.char_input):
   hparams.n = 4 
+if not hasattr(train_hparams, 'single_n') and (train_hparams.char_ngram_n or train_hparams.char_input):
+  hparams.single_n = False 
+if not hasattr(train_hparams, 'bpe_ngram'):
+  hparams.bpe_ngram = False 
+if not hasattr(train_hparams, 'uni'):
+  hparams.uni = False 
 
 model.hparams.cuda = hparams.cuda
 data = DataUtil(hparams=hparams, decode=True)
