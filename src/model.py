@@ -735,7 +735,7 @@ class Seq2Seq(nn.Module):
     elif hparams.dec_semb:
       self.decoder = Decoder(hparams)
       self.encoder = sembEncoder(hparams, self.decoder.word_emb.weight)
-    elif hasattr(self.hparams, 'uni') and hparams.uni:
+    elif hasattr(hparams, 'uni') and hparams.uni:
       self.encoder = uniEncoder(hparams, data)
       self.decoder = Decoder(hparams)
     else:
