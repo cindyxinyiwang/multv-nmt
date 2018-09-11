@@ -388,6 +388,91 @@ class charEmbedder(nn.Module):
 
     return char_emb
 
+class shareEmb(nn.Module):
+  def __init__(self, hparams, data, *args, **kwargs):
+    super(shareEmb, self).__init__()
+    self.hparams = hparams
+    self.emb_list = []
+    self.pretrained_emb_list = []
+    for i in range(len(self.hparams.train_src_file_list)):
+      self.emb_list.append(nn.Embedding(self.hparams.src_vocab_size, self.hparams.d_word_vec))
+      self.pretrained_emb_list.append(nn.Embedding.from_pretrained(data.pretrained_src_emb_list[i], freeze=True))
+    self.emb_list = nn.ModuleList(self.emb_list)
+    self.pretrained_emb_list = nn.ModuleList(self.emb_list)
+    self.latent = Variable(data.pretrained_trg_emb, requires_grad=False) 
+    #self.latent = nn.Embedding.from_pretrained(data.pretrained_trg_emb, freeze=True) 
+    self.dropout = nn.Dropout(hparams.dropout)
+    self.softmax = nn.Softmax(dim=-1)
+    self.temp = np.power(hparams.d_model, 0.5)
+    if self.hparams.cuda: 
+      self.emb_list = self.emb_list.cuda()
+      self.pretrained_emb_list = self.pretrained_emb_list.cuda()
+      self.latent = self.latent.cuda()
+      self.dropout = self.dropout.cuda()
+
+  def forward(self, train_x, file_idx):
+    emb = self.emb_list[file_idx[0]](train_x)
+    #mask = (train_x < 500).float().unsqueeze(2) 
+    pretrained_emb = self.pretrained_emb_list[file_idx[0]](train_x)
+    batch_size, max_len, d_q = pretrained_emb.size()
+    # [batch_size, max_len, vocab_size]
+    attn_weight = torch.bmm(pretrained_emb, self.latent.transpose(0, 1).unsqueeze(0).expand(batch_size, -1, -1)) / self.temp
+    #if not attn_mask is None:
+    #  attn_weight.data.masked_fill_(attn_mask, -self.hparams.inf)
+    attn_weight = self.softmax(attn_weight)
+    attn_weight = self.dropout(attn_weight)
+    # [batch_size, max_len, d_emb_dim]
+    ctx = torch.bmm(attn_weight, self.latent.unsqueeze(0).expand(batch_size, -1, -1))
+    #return ctx + emb*mask
+    return ctx 
+
+class uniEncoder(nn.Module):
+  def __init__(self, hparams, data, *args, **kwargs):
+    super(uniEncoder, self).__init__()
+
+    self.hparams = hparams
+    self.shared_emb = shareEmb(hparams, data)
+
+    self.layer = nn.LSTM(self.hparams.d_word_vec, 
+                         self.hparams.d_model, 
+                         bidirectional=True, 
+                         dropout=hparams.dropout)
+
+    # bridge from encoder state to decoder init state
+    self.bridge = nn.Linear(hparams.d_model * 2, hparams.d_model, bias=False)
+    
+    self.dropout = nn.Dropout(self.hparams.dropout)
+    if self.hparams.cuda:
+      self.shared_emb = self.shared_emb.cuda()
+      self.layer = self.layer.cuda()
+      self.dropout = self.dropout.cuda()
+      self.bridge = self.bridge.cuda()
+
+  def forward(self, x_train, x_len, x_train_char=None, file_idx=None):
+    """Performs a forward pass.
+    Args:
+      x_train: Torch Tensor of size [batch_size, max_len]
+      x_mask: Torch Tensor of size [batch_size, max_len]. 1 means to ignore a
+        position.
+      x_len: [batch_size,]
+    Returns:
+      enc_output: Tensor of size [batch_size, max_len, d_model].
+    """
+    batch_size, max_len = x_train.size()
+    word_emb = self.shared_emb(x_train, file_idx)
+    word_emb = self.dropout(word_emb).permute(1, 0, 2)
+    packed_word_emb = pack_padded_sequence(word_emb, x_len)
+    enc_output, (ht, ct) = self.layer(packed_word_emb)
+    enc_output, _ = pad_packed_sequence(enc_output,  padding_value=self.hparams.pad_id)
+    enc_output = enc_output.permute(1, 0, 2)
+
+    dec_init_cell = self.bridge(torch.cat([ct[0], ct[1]], 1))
+    dec_init_state = F.tanh(dec_init_cell)
+    dec_init = (dec_init_state, dec_init_cell)
+
+    return enc_output, dec_init
+
+
 class sembEncoder(nn.Module):
   def __init__(self, hparams, emb=None, *args, **kwargs):
     super(sembEncoder, self).__init__()
@@ -650,6 +735,9 @@ class Seq2Seq(nn.Module):
     elif hparams.dec_semb:
       self.decoder = Decoder(hparams)
       self.encoder = sembEncoder(hparams, self.decoder.word_emb.weight)
+    elif hasattr(self.hparams, 'uni') and hparams.uni:
+      self.encoder = uniEncoder(hparams, data)
+      self.decoder = Decoder(hparams)
     else:
       self.encoder = Encoder(hparams)
       self.decoder = Decoder(hparams)

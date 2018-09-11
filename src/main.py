@@ -38,6 +38,9 @@ parser.add_argument("--highway", action="store_true", help="load an existing mod
 parser.add_argument("--n", type=int, default=4, help="ngram n")
 parser.add_argument("--single_n", action="store_true", help="ngram n")
 parser.add_argument("--bpe_ngram", action="store_true", help="bpe ngram")
+parser.add_argument("--uni", action="store_true", help="Gu Universal NMT")
+parser.add_argument("--pretrained_src_emb_list", type=str, default=None, help="ngram n")
+parser.add_argument("--pretrained_trg_emb", type=str, default=None, help="ngram n")
 
 parser.add_argument("--load_model", action="store_true", help="load an existing model")
 parser.add_argument("--reset_output_dir", action="store_true", help="delete output directory if it exists")
@@ -277,6 +280,9 @@ def train():
       n=args.n,
       single_n=args.single_n,
       bpe_ngram=args.bpe_ngram,
+      uni=args.uni,
+      pretrained_src_emb_list=args.pretrained_src_emb_list,
+      pretrained_trg_emb=args.pretrained_trg_emb,
     )
   # build or load model
   print("-" * 80)

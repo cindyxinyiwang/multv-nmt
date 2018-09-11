@@ -84,6 +84,8 @@ if hasattr(train_hparams, 'src_char_only'):
   hparams.src_char_only = train_hparams.src_char_only
 else:
   hparams.src_char_only = False
+if not hasattr(train_hparams, 'n') and (train_hparams.char_ngram_n or train_hparams.char_input):
+  hparams.n = 4 
 
 model.hparams.cuda = hparams.cuda
 data = DataUtil(hparams=hparams, decode=True)
