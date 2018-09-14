@@ -271,6 +271,7 @@ class charEmbedder(nn.Module):
           #self.char_down_proj = self.char_down_proj.cuda()
           self.char_emb_proj = self.char_emb_proj.cuda()
       else:
+        #print("word_vec {}".format(char_vsize))
         self.char_emb_proj = nn.Linear(char_vsize, self.hparams.d_word_vec, bias=False)
         if self.hparams.cuda:
           self.char_emb_proj = self.char_emb_proj.cuda()
@@ -329,16 +330,21 @@ class charEmbedder(nn.Module):
         x_char_sent = torch.tanh(self.char_emb_proj(emb))
         if self.hparams.residue:
           x_char_sent_in = x_char_sent
+          #print('residue')
         if self.hparams.sep_char_proj and not self.trg:
           assert file_idx is not None
           x_char_sent = torch.tanh(self.sep_proj_list[file_idx[idx]](x_char_sent))
+          #print('file idx{}'.format(file_idx[idx]))
         elif self.trg and self.hparams.d_char_vec:
           x_char_sent = torch.tanh(self.trg_proj(x_char_sent))
+          #print('self.trg d_char_vec')
 
         if self.hparams.residue:
           x_char_sent = x_char_sent + x_char_sent_in
+          #print('residue')
         if self.hparams.layer_norm:
           x_char_sent = self.layer_norm(x_char_sent)
+          #print('layer norm')
         x_train_char[idx] = x_char_sent
       if not self.hparams.semb == 'mlp':
         char_emb = torch.stack(x_train_char, dim=0)
@@ -399,12 +405,14 @@ class shareEmb(nn.Module):
       self.pretrained_emb_list.append(nn.Embedding.from_pretrained(data.pretrained_src_emb_list[i], freeze=True))
     self.emb_list = nn.ModuleList(self.emb_list)
     self.pretrained_emb_list = nn.ModuleList(self.emb_list)
-    self.latent = Variable(data.pretrained_trg_emb, requires_grad=False) 
-    #self.latent = nn.Embedding.from_pretrained(data.pretrained_trg_emb, freeze=True) 
+    self.latent = Variable(data.pretrained_trg_emb, requires_grad=True) 
+    #self.latent = nn.Embedding.from_pretrained(data.pretrained_trg_emb, freeze=True)
+    self.A = nn.Linear(self.hparams.d_word_vec, self.hparams.d_word_vec, bias=False)
     self.dropout = nn.Dropout(hparams.dropout)
     self.softmax = nn.Softmax(dim=-1)
     self.temp = np.power(hparams.d_model, 0.5)
     if self.hparams.cuda: 
+      self.A = self.A.cuda()
       self.emb_list = self.emb_list.cuda()
       self.pretrained_emb_list = self.pretrained_emb_list.cuda()
       self.latent = self.latent.cuda()
@@ -414,6 +422,7 @@ class shareEmb(nn.Module):
     emb = self.emb_list[file_idx[0]](train_x)
     #mask = (train_x < 500).float().unsqueeze(2) 
     pretrained_emb = self.pretrained_emb_list[file_idx[0]](train_x)
+    pretrained_emb = self.A(pretrained_emb)
     batch_size, max_len, d_q = pretrained_emb.size()
     # [batch_size, max_len, vocab_size]
     attn_weight = torch.bmm(pretrained_emb, self.latent.transpose(0, 1).unsqueeze(0).expand(batch_size, -1, -1)) / self.temp
@@ -482,6 +491,7 @@ class sembEncoder(nn.Module):
       self.hparams.semb_vsize = self.hparams.src_vocab_size 
     self.word_emb = QueryEmb(self.hparams, self.hparams.semb_vsize, emb=emb)
 
+    print("sembEnc")
     self.char_emb = charEmbedder(self.hparams, char_vsize=self.hparams.src_char_vsize)
     if self.hparams.layer_norm:
       self.layer_norm = LayerNormalization(d_hid=self.hparams.d_word_vec)

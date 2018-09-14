@@ -642,7 +642,7 @@ class DataUtil(object):
               i2w.append(w)
               cur_vsize += 1
               i2w_set.add(w)
-              if size > 0 and cur_vsize > size: break
+              if size >= 0 and cur_vsize > size: break
     else:
       i2w_sets = []
       for vfile, size in zip(vfile_list, vsize_list):
