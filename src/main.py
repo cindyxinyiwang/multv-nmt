@@ -18,6 +18,8 @@ from utils import *
 
 parser = argparse.ArgumentParser(description="Neural MT")
 
+parser.add_argument("--always_save", action="store_true", help="always_save")
+
 parser.add_argument("--semb", type=str, default=None, help="[mlp|dot_prod|linear]")
 parser.add_argument("--dec_semb", action="store_true", help="load an existing model")
 parser.add_argument("--query_base", action="store_true", help="load an existing model")
@@ -405,7 +407,7 @@ def train():
       	else:
           save = False
           cur_attempt += 1
-      if save:
+      if save or args.always_save:
       	save_checkpoint([step, best_val_ppl, best_val_bleu, cur_attempt, lr], 
       		             model, optim, hparams, args.output_dir)
       else:
@@ -441,7 +443,6 @@ def train():
       log_string += " wpm(k)={0:<5.2f}".format(target_words / (1000 * elapsed))
       log_string += " time(min)={0:<5.2f}".format(since_start)
       print(log_string)
-
     if args.eval_end_epoch:
       if eop:
         eval_now = True
@@ -488,7 +489,6 @@ def train():
       if epoch >= args.n_train_epochs: break
     else:
       if step > args.n_train_steps: break 
-
 def main():
   random.seed(args.seed)
   np.random.seed(args.seed)
