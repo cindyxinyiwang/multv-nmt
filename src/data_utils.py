@@ -76,7 +76,10 @@ class DataUtil(object):
       train_x_lens = []
       self.file_idx = []
       for s_file,t_file in zip(self.hparams.train_src_file_list, self.hparams.train_trg_file_list):
-        train_x, train_y, x_char_kv, y_char_kv, src_len = self._build_parallel(s_file, t_file, i)
+        if s_file and t_file:
+          train_x, train_y, x_char_kv, y_char_kv, src_len = self._build_parallel(s_file, t_file, i)
+        else:
+          train_x, train_y, x_char_kv, y_char_kv, src_len = [], [], [], [], []
         if self.hparams.shuffle_train:
           self.train_x.extend(train_x)
           self.train_y.extend(train_y)
