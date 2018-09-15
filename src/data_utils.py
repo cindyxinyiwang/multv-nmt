@@ -11,14 +11,20 @@ class DataUtil(object):
     self.hparams = hparams
     self.src_i2w_list = []
     self.src_w2i_list = []
-    for i, v_file in enumerate(hparams.src_vocab_list):
-      #v_file = os.path.join(self.hparams.data_path, v_file)
-      i2w, w2i = self._build_vocab(v_file, max_vocab_size=self.hparams.src_vocab_size)   
+    
+    i2w, w2i = self._build_vocab_list(self.hparams.src_vocab_list, max_vocab_size=self.hparams.src_vocab_size)
+    for i in range(len(self.hparams.src_vocab_list)):
       self.src_i2w_list.append(i2w)
       self.src_w2i_list.append(w2i)
-      if i == 0:
-        self.hparams.src_vocab_size = len(i2w)
-        print("setting src_vocab_size to {}...".format(self.hparams.src_vocab_size))
+    self.hparams.src_vocab_size = len(i2w)
+    #for i, v_file in enumerate(hparams.src_vocab_list):
+    #  #v_file = os.path.join(self.hparams.data_path, v_file)
+    #  i2w, w2i = self._build_vocab(v_file, max_vocab_size=self.hparams.src_vocab_size)   
+    #  self.src_i2w_list.append(i2w)
+    #  self.src_w2i_list.append(w2i)
+    #  if i == 0:
+    #    self.hparams.src_vocab_size = len(i2w)
+    #    print("setting src_vocab_size to {}...".format(self.hparams.src_vocab_size))
     if self.hparams.lan_code_rl:
       num_extra_lan = len(self.hparams.train_src_file_list) - 1
       self.lan_code_list = [self.hparams.src_vocab_size+i for i in range(num_extra_lan)]
@@ -80,7 +86,10 @@ class DataUtil(object):
       train_x_lens = []
       self.file_idx = []
       for s_file,t_file in zip(self.hparams.train_src_file_list, self.hparams.train_trg_file_list):
-        train_x, train_y, x_char_kv, y_char_kv, src_len = self._build_parallel(s_file, t_file, i)
+        if s_file and t_file:
+          train_x, train_y, x_char_kv, y_char_kv, src_len = self._build_parallel(s_file, t_file, i)
+        else:
+          train_x, train_y, x_char_kv, y_char_kv, src_len = [], [], [], [], []
         if self.hparams.shuffle_train:
           self.train_x.extend(train_x)
           self.train_y.extend(train_y)
@@ -635,6 +644,31 @@ class DataUtil(object):
     assert w2i['<s>'] == self.hparams.bos_id
     assert w2i['<\s>'] == self.hparams.eos_id
     return i2w, w2i
+
+  def _build_vocab_list(self, vocab_file_list, max_vocab_size=None):
+    i2w = ['<pad>', '<unk>', '<s>', '<\s>']
+    w2i = {'<pad>': 0, '<unk>':1, '<s>':2, '<\s>':3}
+    i = 4
+    for vocab_file in vocab_file_list:
+      with open(vocab_file, 'r', encoding='utf-8') as f:
+        for line in f:
+          w = line.strip()
+          if w == '<unk>' or w == '<pad>' or w == '<s>' or w == '<\s>': continue
+          w2i[w] = i
+          i2w.append(w)
+          i += 1
+          if max_vocab_size and i >= max_vocab_size:
+            break
+    assert i2w[self.hparams.pad_id] == '<pad>'
+    assert i2w[self.hparams.unk_id] == '<unk>'
+    assert i2w[self.hparams.bos_id] == '<s>'
+    assert i2w[self.hparams.eos_id] == '<\s>'
+    assert w2i['<pad>'] == self.hparams.pad_id
+    assert w2i['<unk>'] == self.hparams.unk_id
+    assert w2i['<s>'] == self.hparams.bos_id
+    assert w2i['<\s>'] == self.hparams.eos_id
+    return i2w, w2i
+
 
   def _build_char_vocab_from(self, vocab_file_list, vocab_size_list, n=None,
       single_n=False):
