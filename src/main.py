@@ -472,7 +472,7 @@ def train():
       	else:
           save = False
           cur_attempt += 1
-      if save:
+      if save or args.always_save:
       	save_checkpoint([step, best_val_ppl, best_val_bleu, cur_attempt, lr], 
       		             model, optim, hparams, args.output_dir)
       else:
