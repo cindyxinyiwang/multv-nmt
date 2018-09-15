@@ -40,10 +40,14 @@ class DataUtil(object):
     if hasattr(self.hparams, 'uni') and self.hparams.uni:
       self.pretrained_src_emb_list = []
       self.pretrained_trg_emb = None
+      self.src_w2i_list = []
+      self.src_i2w_list = []
       for i, emb_file in enumerate(self.hparams.pretrained_src_emb_list):
-        emb = self.load_pretrained(emb_file, self.src_w2i_list[i])
+        emb, i2w, w2i = self.load_pretrained(emb_file)
         self.pretrained_src_emb_list.append(emb)
-      self.pretrained_trg_emb = self.load_pretrained(self.hparams.pretrained_trg_emb, self.trg_w2i_list[0])
+        self.src_i2w_list.append(i2w)
+        self.src_w2i_list.append(w2i)
+      self.pretrained_trg_emb, _, _ = self.load_pretrained(self.hparams.pretrained_trg_emb)
       
     if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram or self.hparams.char_input is not None:
       self.src_char_i2w, self.src_char_w2i = self._build_char_vocab_from(self.hparams.src_char_vocab_from, self.hparams.src_char_vocab_size, n=self.hparams.n, single_n=self.hparams.single_n)
@@ -128,19 +132,28 @@ class DataUtil(object):
       else:
         self.test_x_char, self.test_y_char = None, None
   
-  def load_pretrained(self, pretrained_emb_file, w2i):
+  def load_pretrained(self, pretrained_emb_file):
     f = open(pretrained_emb_file, 'r', encoding='utf-8')
     header = f.readline().split(' ')
     count = int(header[0])
     dim = int(header[1])
-    matrix = np.zeros((len(w2i), dim), dtype=np.float32)
+    #matrix = np.zeros((len(w2i), dim), dtype=np.float32)
+    matrix = np.zeros((count, dim), dtype=np.float32)
+    #i2w = ['<pad>', '<unk>', '<s>', '<\s>']
+    i2w = []
+    #w2i = {'<pad>': 0, '<unk>':1, '<s>':2, '<\s>':3}
+    w2i = {}
+
     for i in range(count):
       word, vec = f.readline().split(' ', 1)
-      if not word in w2i:
-        print("{} no in vocab".format(word))
-        continue
-      matrix[w2i[word]] = np.fromstring(vec, sep=' ', dtype=np.float32) 
-    return torch.FloatTensor(matrix)
+      w2i[word] = len(w2i)
+      i2w.append(word)
+      matrix[i] = np.fromstring(vec, sep=' ', dtype=np.float32)
+      #if not word in w2i:
+      #  print("{} no in vocab".format(word))
+      #  continue
+      #matrix[w2i[word]] = np.fromstring(vec, sep=' ', dtype=np.float32) 
+    return torch.FloatTensor(matrix), i2w, w2i
 
   def get_trans_char(self, char_raw, char_vsize):
     ret_char = []

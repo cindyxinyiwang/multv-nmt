@@ -401,10 +401,10 @@ class shareEmb(nn.Module):
     self.emb_list = []
     self.pretrained_emb_list = []
     for i in range(len(self.hparams.train_src_file_list)):
-      self.emb_list.append(nn.Embedding(self.hparams.src_vocab_size, self.hparams.d_word_vec))
+      self.emb_list.append(nn.Embedding(501, self.hparams.d_word_vec))
       self.pretrained_emb_list.append(nn.Embedding.from_pretrained(data.pretrained_src_emb_list[i], freeze=True))
     self.emb_list = nn.ModuleList(self.emb_list)
-    self.pretrained_emb_list = nn.ModuleList(self.emb_list)
+    self.pretrained_emb_list = nn.ModuleList(self.pretrained_emb_list)
     self.latent = Variable(data.pretrained_trg_emb, requires_grad=True) 
     #self.latent = nn.Embedding.from_pretrained(data.pretrained_trg_emb, freeze=True)
     self.A = nn.Linear(self.hparams.d_word_vec, self.hparams.d_word_vec, bias=False)
@@ -419,8 +419,6 @@ class shareEmb(nn.Module):
       self.dropout = self.dropout.cuda()
 
   def forward(self, train_x, file_idx):
-    emb = self.emb_list[file_idx[0]](train_x)
-    #mask = (train_x < 500).float().unsqueeze(2) 
     pretrained_emb = self.pretrained_emb_list[file_idx[0]](train_x)
     pretrained_emb = self.A(pretrained_emb)
     batch_size, max_len, d_q = pretrained_emb.size()
@@ -432,8 +430,13 @@ class shareEmb(nn.Module):
     attn_weight = self.dropout(attn_weight)
     # [batch_size, max_len, d_emb_dim]
     ctx = torch.bmm(attn_weight, self.latent.unsqueeze(0).expand(batch_size, -1, -1))
-    #return ctx + emb*mask
-    return ctx 
+    mask = (train_x < 500).long()
+    train_x = train_x * mask 
+    #print(train_x)
+    #exit(0)
+    emb = self.emb_list[file_idx[0]](train_x)
+    return ctx + emb
+    #return ctx 
 
 class uniEncoder(nn.Module):
   def __init__(self, hparams, data, *args, **kwargs):
