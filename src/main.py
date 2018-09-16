@@ -374,6 +374,7 @@ def train():
   total_word_loss, total_rule_loss, total_eos_loss = 0, 0, 0
   model.train()
   #i = 0
+  dev_zero = args.dev_zero
   while True:
     x_train, x_mask, x_count, x_len, y_train, y_mask, y_count, y_len, batch_size, x_train_char_sparse, y_train_char_sparse, eop, file_idx = data.next_train()
     optim.zero_grad()
@@ -387,9 +388,10 @@ def train():
     total_corrects += tr_acc.item()
     step += 1
 
-    if args.dev_zero:
-      args.dev_zero = False
-      based_on_bleu = args.eval_bleu and best_val_ppl <= args.ppl_thresh
+    if dev_zero:
+      dev_zero = False
+      #based_on_bleu = args.eval_bleu and best_val_ppl <= args.ppl_thresh
+      based_on_bleu = args.eval_bleu
       val_ppl, val_bleu = eval(model, data, crit, step, hparams, eval_bleu=based_on_bleu, valid_batch_size=args.valid_batch_size, tr_logits=logits)	
       if based_on_bleu:
         if best_val_bleu <= val_bleu:
@@ -454,6 +456,7 @@ def train():
       eval_now = False 
     if eval_now:
       based_on_bleu = args.eval_bleu and best_val_ppl <= args.ppl_thresh
+      if args.dev_zero: based_on_bleu = True
       with torch.no_grad():
         val_ppl, val_bleu = eval(model, data, crit, step, hparams, eval_bleu=based_on_bleu, valid_batch_size=args.valid_batch_size, tr_logits=logits)	
       if based_on_bleu:
