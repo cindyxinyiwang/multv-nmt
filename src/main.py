@@ -389,7 +389,8 @@ def train():
 
     if args.dev_zero:
       args.dev_zero = False
-      based_on_bleu = args.eval_bleu and best_val_ppl <= args.ppl_thresh
+      #based_on_bleu = args.eval_bleu and best_val_ppl <= args.ppl_thresh
+      based_on_bleu = args.eval_bleu
       val_ppl, val_bleu = eval(model, data, crit, step, hparams, eval_bleu=based_on_bleu, valid_batch_size=args.valid_batch_size, tr_logits=logits)	
       if based_on_bleu:
         if best_val_bleu <= val_bleu:
