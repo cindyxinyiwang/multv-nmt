@@ -270,6 +270,7 @@ class DataUtil(object):
     while self.train_index >= self.n_train_batches[self.train_data_index]:
       self.train_data_index += 1
       self.train_index = 0
+      if self.train_data_index >= len(self.train_x): break
     # pad 
     if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
       x_train, x_mask, x_count, x_len, x_train_char = self._pad(x_train, self.hparams.pad_id, x_train_char_kv, self.hparams.src_char_vsize)
