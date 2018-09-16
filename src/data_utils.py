@@ -267,7 +267,7 @@ class DataUtil(object):
     self.train_index += 1
     batch_size = len(x_train)
     y_count = sum([len(y) for y in y_train])
-    if self.train_index >= self.n_train_batches[data_idx]:
+    while self.train_index >= self.n_train_batches[self.train_data_index]:
       self.train_data_index += 1
       self.train_index = 0
     # pad 
