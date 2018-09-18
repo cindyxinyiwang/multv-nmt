@@ -674,8 +674,8 @@ class DataUtil(object):
             if not single_n and n and len(w) > n: continue 
             if w == '<unk>' or w == '<pad>' or w == '<s>' or w == '<\s>': continue
             if w not in i2w_set:
-              i2w.append(w)
               cur_vsize += 1
+              i2w.append(w)
               i2w_set.add(w)
               if size >= 0 and cur_vsize > size: break
     else:
