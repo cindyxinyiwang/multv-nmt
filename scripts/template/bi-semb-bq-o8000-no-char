@@ -17,7 +17,8 @@ python src/main.py \
   --semb_vsize 10000 \
   --ordered_char_dict \
   --trg_no_char \
-  --output_dir="outputs_VERSION/bi-semb-bq-o8000_ILRL/" \
+  --src_no_char \
+  --output_dir="outputs_VERSION/bi-semb-bq-o8000-no-char_ILRL/" \
   --data_path data/ILRL_eng/ \
   --train_src_file_list  data/IL_eng/ted-train.mtok.IL,data/RL_eng/ted-train.mtok.RL \
   --train_trg_file_list  data/IL_eng/ted-train.mtok.spm8000.eng,data/RL_eng/ted-train.mtok.spm8000.eng \
@@ -26,7 +27,7 @@ python src/main.py \
   --dev_trg_ref  data/IL_eng/ted-dev.mtok.eng \
   --src_vocab_list  data/IL_eng/ted-train.mtok.IL.vocab,data/RL_eng/ted-train.mtok.RL.vocab \
   --trg_vocab_list  data/ILRL_eng/ted-train.mtok.spm8000.eng.vocab,data/ILRL_eng/ted-train.mtok.spm8000.eng.vocab \
-  --src_char_vocab_from  data/IL_eng/ted-train.mtok.IL.ochar4vocab,data/RL_eng/ted-train.mtok.RL.ochar4vocab \
+  --src_char_vocab_from data/IL_eng/ted-train.mtok.IL.ochar4vocab,data/RL_eng/ted-train.mtok.RL.ochar4vocab \
   --src_char_vocab_size='8000,8000' \
   --trg_char_vocab_from  data/ILRL_eng/ted-train.mtok.spm8000.eng.ochar4vocab \
   --trg_char_vocab_size='8000' \
