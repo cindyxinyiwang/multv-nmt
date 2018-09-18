@@ -14,6 +14,7 @@ python src/main.py \
   --n 5 \
   --semb="dot_prod" \
   --sep_char_proj \
+  --id_init_sep \
   --query_base \
   --semb_vsize 10000 \
   --ordered_char_dict \
@@ -46,4 +47,4 @@ python src/main.py \
   --lr_dec 0.8 \
   --dropout 0.3 \
   --max_len 10000 \
-  --seed 0
+  --seed SEED
