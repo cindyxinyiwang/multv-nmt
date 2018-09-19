@@ -13,7 +13,6 @@ python src/main.py \
   --bpe_ngram \
   --semb="dot_prod" \
   --sep_char_proj \
-  --id_init_sep \
   --query_base \
   --semb_vsize 10000 \
   --ordered_char_dict \
