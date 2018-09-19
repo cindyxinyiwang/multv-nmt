@@ -20,6 +20,7 @@ parser = argparse.ArgumentParser(description="Neural MT")
 
 parser.add_argument("--always_save", action="store_true", help="always_save")
 parser.add_argument("--id_init_sep", action="store_true", help="init identity matrix")
+parser.add_argument("--id_scale", type=float, default=0.01, help="[mlp|dot_prod|linear]")
 
 parser.add_argument("--semb", type=str, default=None, help="[mlp|dot_prod|linear]")
 parser.add_argument("--dec_semb", action="store_true", help="load an existing model")
@@ -349,7 +350,8 @@ def train():
       if args.id_init_sep and args.semb and args.sep_char_proj:
         print("initialize char proj as identity matrix")
         for s in model.encoder.char_emb.sep_proj_list:
-          s.weight.data.copy_(torch.eye(s.weight.data.size(0)))
+          d = s.weight.data.size(0)
+          s.weight.data.copy_(torch.eye(d) + args.id_scale*torch.diagflat(torch.ones(d).normal_(0,1)))
     trainable_params = [
       p for p in model.parameters() if p.requires_grad]
     optim = torch.optim.Adam(trainable_params, lr=hparams.lr, weight_decay=hparams.l2_reg)
