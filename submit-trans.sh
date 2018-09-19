@@ -13,15 +13,21 @@ set -e
 
 source activate py36
 #mkdir -p outs
-for f in scripts/trans_cfg/*; do
-  f1=`basename $f .sh`_trans
-  if [[ ! -e outputs_v1/$f1.started ]]; then
-    echo "running $f1"
-    touch outputs_v1/$f1.started
+version=v7
+for f in scripts/cfg_"$version"/*_trans.sh; do
+  f1=`basename $f _trans.sh`
+  echo "$f1 "
+  if [[ ! -e outputs_"$version"/"$f1"/ted-test-b5m1 ]]; then
+    if [[ ! -e outputs_"$version"/"$f1"/model.pt ]]; then
+      echo "$f1 no model file"
+      continue
+    fi
+    echo "running $f"
     hostname
     nvidia-smi
+    chmod u+x $f
     ./$f
   else
-    echo "already started $f1"
+    echo "already started $f"
   fi
 done
