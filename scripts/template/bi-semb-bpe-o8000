@@ -19,12 +19,12 @@ python src/main.py \
   --trg_no_char \
   --output_dir="outputs_VERSION/bi-semb-bpe-o8000_ILRL/" \
   --data_path data/ILRL_eng/ \
-  --train_src_file_list  data/IL_eng/ted-train.mtok.spm8000.IL,data/RL_eng/ted-train.mtok.spm8000.RL \
+  --train_src_file_list  data/IL_eng/ted-train.mtok.IL,data/RL_eng/ted-train.mtok.RL \
   --train_trg_file_list  data/IL_eng/ted-train.mtok.spm8000.eng,data/RL_eng/ted-train.mtok.spm8000.eng \
-  --dev_src_file  data/IL_eng/ted-dev.mtok.spm8000.IL \
+  --dev_src_file  data/IL_eng/ted-dev.mtok.IL \
   --dev_trg_file  data/IL_eng/ted-dev.mtok.spm8000.eng \
   --dev_trg_ref  data/IL_eng/ted-dev.mtok.eng \
-  --src_vocab_list  data/IL_eng/ted-train.mtok.spm8000.IL.vocab,data/RL_eng/ted-train.mtok.spm8000.RL.vocab \
+  --src_vocab_list  data/IL_eng/ted-train.mtok.IL.vocab,data/RL_eng/ted-train.mtok.RL.vocab \
   --trg_vocab_list  data/ILRL_eng/ted-train.mtok.spm8000.eng.vocab,data/ILRL_eng/ted-train.mtok.spm8000.eng.vocab \
   --src_char_vocab_from  data/IL_eng/ted-train.mtok.spm8000.IL.vocab,data/RL_eng/ted-train.mtok.spm8000.RL.vocab \
   --src_char_vocab_size='-1,-1' \
