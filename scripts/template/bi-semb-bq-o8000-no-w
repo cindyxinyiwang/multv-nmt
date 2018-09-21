@@ -12,6 +12,7 @@ python src/main.py \
   --reset_output_dir \
   --char_ngram_n 4 \
   --sep_char_proj \
+  --id_init_sep \
   --ordered_char_dict \
   --trg_no_char \
   --src_char_only \
