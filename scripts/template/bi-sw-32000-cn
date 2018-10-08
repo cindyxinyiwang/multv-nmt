@@ -23,10 +23,10 @@ python src/main.py \
   --dev_trg_ref  data/IL_eng/ted-dev.mtok.eng \
   --src_vocab_list  data/ILRL_eng/ted-train.mtok.sepspm32000.ILRL.vocab \
   --trg_vocab_list  data/ILRL_eng/ted-train.mtok.spm8000.eng.vocab,data/ILRL_eng/ted-train.mtok.spm8000.eng.vocab \
-  --src_char_vocab_from data/IL_eng/ted-train.mtok.spm32000.IL.ochar5vocab,data/RL_eng/ted-train.mtok.RL.ochar5vocab \
+  --src_char_vocab_from data/IL_eng/ted-train.mtok.spm32000.IL.ochar5vocab,data/RL_eng/ted-train.mtok.spm32000.RL.ochar5vocab \
   --src_char_vocab_size='32000,32000' \
-  --trg_char_vocab_from  data/ILRL_eng/ted-train.mtok.spm8000.eng.ochar5vocab \
-  --trg_char_vocab_size='32000' \
+  --trg_char_vocab_from  data/ILRL_eng/ted-train.mtok.spm8000.eng.ochar4vocab \
+  --trg_char_vocab_size='8000' \
   --d_word_vec=128 \
   --d_model=512 \
   --log_every=50 \
@@ -42,4 +42,4 @@ python src/main.py \
   --lr_dec 0.8 \
   --dropout 0.3 \
   --max_len 10000 \
-  --seed 0
+  --seed SEED
