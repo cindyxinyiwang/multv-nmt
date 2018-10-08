@@ -27,10 +27,10 @@ python src/main.py \
   --dev_trg_ref  data/IL_eng/ted-dev.mtok.eng \
   --src_vocab_list  data/IL_eng/ted-train.mtok.IL.vocab,data/RL_eng/ted-train.mtok.RL.vocab \
   --trg_vocab_list  data/ILRL_eng/ted-train.mtok.spm8000.eng.vocab,data/ILRL_eng/ted-train.mtok.spm8000.eng.vocab \
-  --src_char_vocab_from data/IL_eng/ted-train.mtok.IL.ochar5vocab,data/RL_eng/ted-train.mtok.RL.ochar5vocab \
+  --src_char_vocab_from  data/IL_eng/ted-train.mtok.IL.ochar5vocab,data/RL_eng/ted-train.mtok.RL.ochar5vocab \
   --src_char_vocab_size='32000,32000' \
-  --trg_char_vocab_from  data/ILRL_eng/ted-train.mtok.spm8000.eng.ochar5vocab \
-  --trg_char_vocab_size='32000' \
+  --trg_char_vocab_from  data/ILRL_eng/ted-train.mtok.spm8000.eng.ochar4vocab \
+  --trg_char_vocab_size='8000' \
   --d_word_vec=128 \
   --d_model=512 \
   --log_every=50 \

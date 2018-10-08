@@ -11,7 +11,7 @@ python src/main.py \
   --clean_mem_every 5 \
   --reset_output_dir \
   --src_vocab_size 64000 \
-  --output_dir="outputs_v7/bi-w-64000_ILRL/" \
+  --output_dir="outputs_VERSION/bi-w-64000_ILRL/" \
   --data_path data/ILRL_eng/ \
   --train_src_file_list data/ILRL_eng/ted-train.mtok.ILRL \
   --train_trg_file_list  data/ILRL_eng/ted-train.mtok.spm8000.eng \
@@ -35,4 +35,4 @@ python src/main.py \
   --lr_dec 0.8 \
   --dropout 0.3 \
   --max_len 10000 \
-  --seed 0
+  --seed SEED
