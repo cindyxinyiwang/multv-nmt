@@ -286,15 +286,15 @@ class DataUtil(object):
       if self.train_data_index >= len(self.train_x): break
     # pad 
     if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
-      x_train, x_mask, x_count, x_len, x_train_char = self._pad(x_train, self.hparams.pad_id, x_train_char_kv, self.hparams.src_char_vsize)
-      y_train, y_mask, y_count, y_len, y_train_char = self._pad(y_train, self.hparams.pad_id, y_train_char_kv, self.hparams.trg_char_vsize)
+      x_train, x_mask, x_count, x_len, x_pos_emb_idxs, x_train_char = self._pad(x_train, self.hparams.pad_id, x_train_char_kv, self.hparams.src_char_vsize)
+      y_train, y_mask, y_count, y_len, y_pos_emb_idxs, y_train_char = self._pad(y_train, self.hparams.pad_id, y_train_char_kv, self.hparams.trg_char_vsize)
     elif self.hparams.char_input is not None:
-      x_train, x_mask, x_count, x_len, x_train_char = self._pad(x_train, self.hparams.pad_id, char_sents=x_train_char_kv)
-      y_train, y_mask, y_count, y_len, y_train_char = self._pad(y_train, self.hparams.pad_id, char_sents=y_train_char_kv)
+      x_train, x_mask, x_count, x_len, x_pos_emb_idxs, x_train_char = self._pad(x_train, self.hparams.pad_id, char_sents=x_train_char_kv)
+      y_train, y_mask, y_count, y_len, y_pos_emb_idxs, y_train_char = self._pad(y_train, self.hparams.pad_id, char_sents=y_train_char_kv)
     else:
       x_train_char, y_train_char = None, None
-      x_train, x_mask, x_count, x_len = self._pad(x_train, self.hparams.pad_id)
-      y_train, y_mask, y_count, y_len = self._pad(y_train, self.hparams.pad_id)
+      x_train, x_mask, x_count, x_len, x_pos_emb_idxs = self._pad(x_train, self.hparams.pad_id)
+      y_train, y_mask, y_count, y_len, y_pos_emb_idxs = self._pad(y_train, self.hparams.pad_id)
 
     if self.train_data_index >= len(self.train_x):
       self.reset_train()
@@ -306,7 +306,7 @@ class DataUtil(object):
     #print(y_train)
     #print(y_mask)
     #exit(0)
-    return x_train, x_mask, x_count, x_len, y_train, y_mask, y_count, y_len, batch_size, x_train_char, y_train_char, eop, train_file_index 
+    return x_train, x_mask, x_count, x_len, x_pos_emb_idxs, y_train, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_train_char, y_train_char, eop, train_file_index 
 
   def next_dev(self, dev_batch_size=10):
     start_index = self.dev_index
@@ -323,15 +323,15 @@ class DataUtil(object):
       x_dev, y_dev = self.sort_by_xlen(x_dev, y_dev)
 
     if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
-      x_dev, x_mask, x_count, x_len, x_dev_char_sparse = self._pad(x_dev, self.hparams.pad_id, x_dev_char_kv, self.hparams.src_char_vsize)
-      y_dev, y_mask, y_count, y_len, y_dev_char_sparse = self._pad(y_dev, self.hparams.pad_id, y_dev_char_kv, self.hparams.trg_char_vsize)
+      x_dev, x_mask, x_count, x_len, x_pos_emb_idxs, x_dev_char_sparse = self._pad(x_dev, self.hparams.pad_id, x_dev_char_kv, self.hparams.src_char_vsize)
+      y_dev, y_mask, y_count, y_len, y_pos_emb_idxs, y_dev_char_sparse = self._pad(y_dev, self.hparams.pad_id, y_dev_char_kv, self.hparams.trg_char_vsize)
     elif self.hparams.char_input is not None:
-      x_dev, x_mask, x_count, x_len, x_dev_char_sparse = self._pad(x_dev, self.hparams.pad_id, char_sents=x_dev_char_kv)
-      y_dev, y_mask, y_count, y_len, y_dev_char_sparse = self._pad(y_dev, self.hparams.pad_id, char_sents=y_dev_char_kv)
+      x_dev, x_mask, x_count, x_len, x_pos_emb_idxs, x_dev_char_sparse = self._pad(x_dev, self.hparams.pad_id, char_sents=x_dev_char_kv)
+      y_dev, y_mask, y_count, y_len, y_pos_emb_idxs, y_dev_char_sparse = self._pad(y_dev, self.hparams.pad_id, char_sents=y_dev_char_kv)
     else:
       x_dev_char_sparse, y_dev_char_sparse = None, None
-      x_dev, x_mask, x_count, x_len = self._pad(x_dev, self.hparams.pad_id)
-      y_dev, y_mask, y_count, y_len = self._pad(y_dev, self.hparams.pad_id)
+      x_dev, x_mask, x_count, x_len, x_pos_emb_idxs = self._pad(x_dev, self.hparams.pad_id)
+      y_dev, y_mask, y_count, y_len, y_pos_emb_idxs = self._pad(y_dev, self.hparams.pad_id)
 
     if end_index >= self.dev_size:
       eop = True
@@ -340,7 +340,7 @@ class DataUtil(object):
       eop = False
       self.dev_index += batch_size
 
-    return x_dev, x_mask, x_count, x_len, y_dev, y_mask, y_count, y_len, batch_size, eop, x_dev_char_sparse, y_dev_char_sparse
+    return x_dev, x_mask, x_count, x_len, x_pos_emb_idxs, y_dev, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, eop, x_dev_char_sparse, y_dev_char_sparse
 
   def next_test(self, test_batch_size=10):
     start_index = self.test_index
@@ -353,12 +353,12 @@ class DataUtil(object):
       x_test_char_kv = self.test_x_char_kv[start_index:end_index]
       y_test_char_kv = self.test_y_char_kv[start_index:end_index]
     if self.hparams.char_ngram_n > 0 or self.hparams.ngram_n or self.hparams.char_input is not None:
-      x_test, x_mask, x_count, x_len, x_test_char = self._pad(x_test, self.pad_id, x_test_char_kv, self.hparams.src_char_vsize)
-      y_test, y_mask, y_count, y_len, y_test_char = self._pad(y_test, self.pad_id, y_test_char_kv, self.hparams.trg_char_vsize)
+      x_test, x_mask, x_count, x_len, x_pos_emb_idxs, x_test_char = self._pad(x_test, self.pad_id, x_test_char_kv, self.hparams.src_char_vsize)
+      y_test, y_mask, y_count, y_len, y_pos_emb_idxs, y_test_char = self._pad(y_test, self.pad_id, y_test_char_kv, self.hparams.trg_char_vsize)
     else:
       x_test_char, y_test_char = None, None
-      x_test, x_mask, x_count, x_len = self._pad(x_test, self.pad_id)
-      y_test, y_mask, y_count, y_len = self._pad(y_test, self.pad_id)
+      x_test, x_mask, x_count, x_len, x_pos_emb_idxs = self._pad(x_test, self.pad_id)
+      y_test, y_mask, y_count, y_len, y_pos_emb_idxs = self._pad(y_test, self.pad_id)
 
     if end_index >= self.test_size:
       eop = True
@@ -367,7 +367,7 @@ class DataUtil(object):
       eop = False
       self.test_index += batch_size
 
-    return x_test, x_mask, x_count, x_len, y_test, y_mask, y_count, y_len, batch_size, eop, x_test_char, y_test_char
+    return x_test, x_mask, x_count, x_len, x_pos_emb_idxs, y_test, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, eop, x_test_char, y_test_char
 
   def sort_by_xlen(self, x, y, x_char_kv=None, y_char_kv=None, file_index=None):
     x = np.array(x)
@@ -423,15 +423,16 @@ class DataUtil(object):
     mask = [[0]*len(s) + [1]*(max_len - len(s)) for s in sentences]
     padded_sentences = Variable(torch.LongTensor(padded_sentences))
     mask = torch.ByteTensor(mask)
+    pos_emb_indices = [[i+1 for i in range(len(s))] + ([0]*(max_len - len(s))) for s in sentences]
     if self.hparams.cuda:
       padded_sentences = padded_sentences.cuda()
       mask = mask.cuda()
     if char_kv:
-      return padded_sentences, mask, count, lengths, char_sparse
+      return padded_sentences, mask, count, lengths, pos_emb_indices, char_sparse
     elif char_sents:
-      return padded_sentences, mask, count, lengths, padded_char_sents
+      return padded_sentences, mask, count, lengths, pos_emb_indices, padded_char_sents
     else:
-      return padded_sentences, mask, count, lengths
+      return padded_sentences, mask, count, lengths, pos_emb_indices
 
   def _get_char(self, word, i2w, w2i, n=1):
     chars = []
