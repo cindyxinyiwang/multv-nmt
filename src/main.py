@@ -15,6 +15,7 @@ from data_utils import DataUtil
 from hparams import *
 from model import *
 from utils import *
+from transformer import *
 
 parser = argparse.ArgumentParser(description="Neural MT")
 
@@ -69,9 +70,12 @@ parser.add_argument("--n_train_sents", type=int, default=None, help="max number 
 parser.add_argument("--d_word_vec", type=int, default=288, help="size of word and positional embeddings")
 parser.add_argument("--d_char_vec", type=int, default=None, help="size of word and positional embeddings")
 parser.add_argument("--d_model", type=int, default=288, help="size of hidden states")
+parser.add_argument("--d_inner", type=int, default=512, help="hidden dim of position-wise ff")
+parser.add_argument("--n_layers", type=int, default=1, help="number of lstm layers")
 parser.add_argument("--n_heads", type=int, default=3, help="number of attention heads")
 parser.add_argument("--d_k", type=int, default=64, help="size of attention head")
 parser.add_argument("--d_v", type=int, default=64, help="size of attention head")
+parser.add_argument("--pos_emb_size", type=int, default=None, help="size of trainable pos emb")
 
 parser.add_argument("--data_path", type=str, default=None, help="path to all data")
 parser.add_argument("--train_src_file_list", type=str, default=None, help="source train file")
@@ -109,6 +113,7 @@ parser.add_argument("--init_range", type=float, default=0.1, help="L2 init range
 parser.add_argument("--init_type", type=str, default="uniform", help="uniform|xavier_uniform|xavier_normal|kaiming_uniform|kaiming_normal")
 
 parser.add_argument("--share_emb_softmax", action="store_true", help="weight tieing")
+parser.add_argument("--label_smoothing", action="store_true", help="label smooth")
 parser.add_argument("--reset_hparams", action="store_true", help="whether to reload the hparams")
 
 parser.add_argument("--char_ngram_n", type=int, default=0, help="use char_ngram embedding")
@@ -123,6 +128,9 @@ parser.add_argument("--pretrained_model", type=str, default=None, help="location
 
 parser.add_argument("--src_char_only", action="store_true", help="only use char emb on src")
 parser.add_argument("--trg_char_only", action="store_true", help="only use char emb on trg")
+
+parser.add_argument("--model_type", type=str, default="seq2seq", help="[seq2seq|transformer]")
+parser.add_argument("--share_emb_and_softmax", action="store_true", help="only use char emb on trg")
 args = parser.parse_args()
 
 if args.bpe_ngram: args.n = None
@@ -149,7 +157,7 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
     gc.collect()
 
     # next batch
-    x_valid, x_mask, x_count, x_len, y_valid, y_mask, y_count, y_len, batch_size, end_of_epoch, x_valid_char_sparse, y_valid_char_sparse = data.next_dev(dev_batch_size=valid_batch_size)
+    x_valid, x_mask, x_count, x_len, x_pos_emb_idxs, y_valid, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, end_of_epoch, x_valid_char_sparse, y_valid_char_sparse = data.next_dev(dev_batch_size=valid_batch_size)
     #print(x_valid)
     #print(x_mask)
     #print(y_valid)
@@ -160,8 +168,8 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
     valid_words += y_count
 
     logits = model.forward(
-      x_valid, x_mask, x_len,
-      y_valid[:,:-1], y_mask[:,:-1], y_len, x_valid_char_sparse, y_valid_char_sparse, file_idx=[0 for _ in range(batch_size)])
+      x_valid, x_mask, x_len, x_pos_emb_idxs,
+      y_valid[:,:-1], y_mask[:,:-1], y_len, y_pos_emb_idxs, x_valid_char_sparse, y_valid_char_sparse, file_idx=[0 for _ in range(batch_size)])
     logits = logits.view(-1, hparams.trg_vocab_size)
     labels = y_valid[:,1:].contiguous().view(-1)
     val_loss, val_acc = get_performance(crit, logits, labels, hparams)
@@ -237,6 +245,8 @@ def train():
       cuda=args.cuda,
       d_word_vec=args.d_word_vec,
       d_model=args.d_model,
+      d_inner=args.d_inner,
+      n_layers=args.n_layers,
       batch_size=args.batch_size,
       batcher=args.batcher,
       n_train_steps=args.n_train_steps,
@@ -247,6 +257,7 @@ def train():
       init_type=args.init_type,
       init_range=args.init_range,
       share_emb_softmax=args.share_emb_softmax,
+      label_smoothing=args.label_smoothing,
       n_heads=args.n_heads,
       d_k=args.d_k,
       d_v=args.d_v,
@@ -287,6 +298,7 @@ def train():
       uni=args.uni,
       pretrained_src_emb_list=args.pretrained_src_emb_list,
       pretrained_trg_emb=args.pretrained_trg_emb,
+      pos_emb_size=args.pos_emb_size,
     )
   # build or load model
   print("-" * 80)
@@ -342,7 +354,13 @@ def train():
       model.data = data
     else:
       data = DataUtil(hparams=hparams)
-      model = Seq2Seq(hparams=hparams, data=data)
+      if args.model_type == 'seq2seq':
+        model = Seq2Seq(hparams=hparams, data=data)
+      elif args.model_type == 'transformer':
+        model = Transformer(hparams=hparams, data=data)
+      else:
+        print("Model {} not implemented".format(args.model_type))
+        exit(0)
       if args.init_type == "uniform":
         print("initialize uniform with range {}".format(args.init_range))
         for p in model.parameters():
@@ -383,10 +401,10 @@ def train():
   #i = 0
   dev_zero = args.dev_zero
   while True:
-    x_train, x_mask, x_count, x_len, y_train, y_mask, y_count, y_len, batch_size, x_train_char_sparse, y_train_char_sparse, eop, file_idx = data.next_train()
+    x_train, x_mask, x_count, x_len, x_pos_emb_idxs, y_train, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_train_char_sparse, y_train_char_sparse, eop, file_idx = data.next_train()
     optim.zero_grad()
     target_words += (y_count - batch_size)
-    logits = model.forward(x_train, x_mask, x_len, y_train[:,:-1], y_mask[:,:-1], y_len, x_train_char_sparse, y_train_char_sparse, file_idx=file_idx)
+    logits = model.forward(x_train, x_mask, x_len, x_pos_emb_idxs, y_train[:,:-1], y_mask[:,:-1], y_len, y_pos_emb_idxs, x_train_char_sparse, y_train_char_sparse, file_idx=file_idx)
     logits = logits.view(-1, hparams.trg_vocab_size)
     labels = y_train[:,1:].contiguous().view(-1)
     #print(labels)

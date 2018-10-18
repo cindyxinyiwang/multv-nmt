@@ -447,7 +447,8 @@ class uniEncoder(nn.Module):
 
     self.layer = nn.LSTM(self.hparams.d_word_vec, 
                          self.hparams.d_model, 
-                         bidirectional=True, 
+                         bidirectional=True,
+                         num_layers=self.hparams.n_layers,
                          dropout=hparams.dropout)
 
     # bridge from encoder state to decoder init state
@@ -761,7 +762,7 @@ class Seq2Seq(nn.Module):
     if self.hparams.cuda:
       self.enc_to_k = self.enc_to_k.cuda()
 
-  def forward(self, x_train, x_mask, x_len, y_train, y_mask, y_len, x_train_char_sparse=None, y_train_char_sparse=None, file_idx=None):
+  def forward(self, x_train, x_mask, x_len, x_pos_emb_idxs, y_train, y_mask, y_len, y_pos_emb_idxs, x_train_char_sparse=None, y_train_char_sparse=None, file_idx=None):
     # [batch_size, x_len, d_model * 2]
     x_enc, dec_init = self.encoder(x_train, x_len, x_train_char_sparse, file_idx=file_idx)
     x_enc_k = self.enc_to_k(x_enc)

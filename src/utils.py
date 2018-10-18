@@ -81,4 +81,35 @@ def init_param(p, init_type="uniform", init_range=None):
   else:
     raise ValueError("Unknown init_type '{0}'".format(init_type))
 
-  raise ValueError("Unknown type '{0}'".format(type))
+
+def get_attn_subsequent_mask(seq, pad_id=0):
+  """ Get an attention mask to avoid using the subsequent info."""
+
+  assert seq.dim() == 2
+  batch_size, max_len = seq.size()
+  sub_mask = torch.triu(
+    torch.ones(max_len, max_len), diagonal=1).unsqueeze(0).repeat(
+      batch_size, 1, 1).type(torch.ByteTensor)
+  if seq.is_cuda:
+    sub_mask = sub_mask.cuda()
+  return sub_mask
+
+def grad_clip(params, grad_bound=None):
+  """Clipping gradients at L-2 norm grad_bound. Returns the L-2 norm."""
+
+  params = list(filter(lambda p: p.grad is not None, params))
+  total_norm = 0
+  for p in params:
+    if p.grad is None:
+      continue
+    param_norm = p.grad.data.norm(2)
+    total_norm += param_norm ** 2
+  total_norm = total_norm ** 0.5
+
+  if grad_bound is not None:
+    clip_coef = grad_bound / (total_norm + 1e-6)
+    if clip_coef < 1:
+      for p in params:
+        p.grad.data.mul_(clip_coef)
+  return total_norm
+
