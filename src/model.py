@@ -773,23 +773,20 @@ class Seq2Seq(nn.Module):
 
   def translate(self, x_train, max_len=100, beam_size=5, poly_norm_m=0, x_train_char=None, y_train_char=None):
     hyps = []
-    for i, x in enumerate(x_train):
-      gc.collect()
+    batch_size = x_train.size(0)
+    for i in range(batch_size):
+      x = x_train[i,:].unsqueeze(0)
       if x_train_char:
-        x_char = x_train_char[i]
+        # (1, max_len, char_dim)
+        x_char = [x_train_char[i]]
       else:
         x_char = None
-      x = Variable(torch.LongTensor(x))
-      if self.hparams.cuda:
-        x = x.cuda()
       hyp = self.translate_sent(x, max_len=max_len, beam_size=beam_size, poly_norm_m=poly_norm_m, x_train_char=x_char)[0]
       hyps.append(hyp.y[1:-1])
     return hyps
 
   def translate_sent(self, x_train, max_len=100, beam_size=5, poly_norm_m=0, x_train_char=None):
-    assert len(x_train.size()) == 1
     x_len = [x_train.size(0)]
-    x_train = x_train.unsqueeze(0)
     x_enc, dec_init = self.encoder(x_train, x_len, x_train_char, file_idx=[0])
     x_enc_k = self.enc_to_k(x_enc)
     length = 0

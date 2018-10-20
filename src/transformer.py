@@ -15,6 +15,7 @@ from torch import nn
 import numpy as np
 from layers import *
 from utils import *
+from model import QueryEmb, charEmbedder
 
 class Encoder(nn.Module):
   def __init__(self, hparams, *args, **kwargs):
@@ -24,9 +25,16 @@ class Encoder(nn.Module):
     assert self.hparams.d_word_vec == self.hparams.d_model
 
     self.pos_emb = PositionalEmbedding(hparams)
-    self.word_emb = nn.Embedding(self.hparams.src_vocab_size,
-                                 self.hparams.d_word_vec,
-                                 padding_idx=hparams.pad_id)
+    if self.hparams.semb:
+      print("using SDE...")
+      if self.hparams.semb_vsize is None:
+        self.hparams.semb_vsize = self.hparams.src_vocab_size 
+      self.word_emb = QueryEmb(self.hparams, self.hparams.semb_vsize)
+      self.char_emb = charEmbedder(self.hparams, char_vsize=self.hparams.src_char_vsize)
+    else:
+      self.word_emb = nn.Embedding(self.hparams.src_vocab_size,
+                                   self.hparams.d_word_vec,
+                                   padding_idx=hparams.pad_id)
     self.emb_scale = np.sqrt(self.hparams.d_model)
 
     self.layer_stack = nn.ModuleList(
@@ -39,7 +47,7 @@ class Encoder(nn.Module):
       self.layer_stack = self.layer_stack.cuda()
       self.dropout = self.dropout.cuda()
 
-  def forward(self, x_train, x_mask, x_pos_emb_indices):
+  def forward(self, x_train, x_mask, x_pos_emb_indices, x_train_char=None, file_idx=None):
     """Performs a forward pass.
 
     Args:
@@ -55,7 +63,12 @@ class Encoder(nn.Module):
 
     # [batch_size, max_len, d_word_vec]
     pos_emb = self.pos_emb(x_train)
-    word_emb = self.word_emb(x_train) * self.emb_scale
+    if self.hparams.semb:
+      char_emb = self.char_emb(x_train_char, file_idx=file_idx)
+      word_emb = self.word_emb(char_emb, x_train, file_idx=file_idx)
+      word_emb = word_emb * self.emb_scale
+    else:
+      word_emb = self.word_emb(x_train) * self.emb_scale
     enc_input = word_emb + pos_emb
 
     # [batch_size, 1, max_len] -> [batch_size, len_q, len_k]
@@ -208,7 +221,7 @@ class Transformer(nn.Module):
               y_train, y_mask, y_len, y_pos_emb_indices, 
               x_train_char_sparse=None, y_train_char_sparse=None, file_idx=None, label_smoothing=True):
 
-    enc_output = self.encoder(x_train, x_mask, x_pos_emb_indices)
+    enc_output = self.encoder(x_train, x_mask, x_pos_emb_indices, x_train_char_sparse, file_idx)
     dec_output = self.decoder(
       enc_output, x_mask, y_train, y_mask, y_pos_emb_indices)
     dec_output = self.dropout(dec_output)
@@ -225,8 +238,8 @@ class Transformer(nn.Module):
     params = self.parameters()
     return params
   
-  def translate(self, x_train_batch, x_mask_batch, x_pos_emb_indices_batch,
-                beam_size, max_len):
+  def translate(self, x_train_batch, x_mask_batch, x_pos_emb_indices_batch, x_char_sparse_batch,
+                beam_size, max_len, poly_norm_m=0):
 
     class Hyp(object):
       def __init__(self, state=None, y=None, ctx_tm1=None, score=None):
@@ -241,9 +254,12 @@ class Transformer(nn.Module):
       x_train = x_train_batch[i, :].unsqueeze(0)
       x_mask = x_mask_batch[i, :].unsqueeze(0)
       x_pos_emb_indices = x_pos_emb_indices_batch[i, :].unsqueeze(0)
-
+      if x_char_sparse_batch is not None:
+        x_char_sparse = [x_char_sparse_batch[i]]
+      else:
+        x_char_sparse = None
       # translate one sentence
-      enc_output = self.encoder(x_train, x_mask, x_pos_emb_indices)
+      enc_output = self.encoder(x_train, x_mask, x_pos_emb_indices, x_char_sparse, file_idx=0)
       completed_hyp = []
       completed_hyp_scores = []
       active_hyp = [Hyp(y=[self.hparams.bos_id], score=0.)]
@@ -266,7 +282,11 @@ class Transformer(nn.Module):
           dec_output = dec_output[:, -1, :]
           logits = self.w_logit(dec_output)
           probs = torch.nn.functional.log_softmax(logits, dim=1)
-          new_hyp_scores = hyp.score + probs.data
+          if poly_norm_m > 0 and length > 1:
+            new_hyp_scores = (hyp.score * pow(length-1, poly_norm_m) + probs.data) / pow(length, poly_norm_m)
+          else:
+            #new_hyp_scores = hyp.score + p_t 
+            new_hyp_scores = hyp.score + probs.data
           new_hyp_score_list.append(new_hyp_scores)
         live_hyp_num = beam_size - len(completed_hyp)
         new_hyp_scores = np.concatenate(new_hyp_score_list).flatten()
@@ -296,9 +316,11 @@ class Transformer(nn.Module):
         reverse=True)
       h = [hyp.y for hyp, score in ranked_hypothesis]
       s = [score for hyp, score in ranked_hypothesis]
-      all_hyp.append(h)
-      all_scores.append(s)
-    return all_hyp, all_scores     
+      all_hyp.append(h[0])
+      #all_hyp.append(h)
+      #all_scores.append(s)
+    #return all_hyp, all_scores     
+    return all_hyp     
 
   def translate_batch_corrupt(self, x_train, x_mask, x_pos_emb_indices,
                       beam_size, max_len, raml_source=True, n_corrupts=0):
