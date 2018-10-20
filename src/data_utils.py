@@ -352,13 +352,20 @@ class DataUtil(object):
     if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram or self.hparams.char_input is not None:
       x_test_char_kv = self.test_x_char_kv[start_index:end_index]
       y_test_char_kv = self.test_y_char_kv[start_index:end_index]
-    if self.hparams.char_ngram_n > 0 or self.hparams.ngram_n or self.hparams.char_input is not None:
-      x_test, x_mask, x_count, x_len, x_pos_emb_idxs, x_test_char = self._pad(x_test, self.pad_id, x_test_char_kv, self.hparams.src_char_vsize)
-      y_test, y_mask, y_count, y_len, y_pos_emb_idxs, y_test_char = self._pad(y_test, self.pad_id, y_test_char_kv, self.hparams.trg_char_vsize)
+      x_test, y_test, x_test_char_kv, y_test_char_kv = self.sort_by_xlen(x_test, y_test, x_test_char_kv, y_test_char_kv)
     else:
-      x_test_char, y_test_char = None, None
-      x_test, x_mask, x_count, x_len, x_pos_emb_idxs = self._pad(x_test, self.pad_id)
-      y_test, y_mask, y_count, y_len, y_pos_emb_idxs = self._pad(y_test, self.pad_id)
+      x_test, y_test = self.sort_by_xlen(x_test, y_test)
+
+    if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
+      x_test, x_mask, x_count, x_len, x_pos_emb_idxs, x_test_char_sparse = self._pad(x_test, self.hparams.pad_id, x_test_char_kv, self.hparams.src_char_vsize)
+      y_test, y_mask, y_count, y_len, y_pos_emb_idxs, y_test_char_sparse = self._pad(y_test, self.hparams.pad_id, y_test_char_kv, self.hparams.trg_char_vsize)
+    elif self.hparams.char_input is not None:
+      x_test, x_mask, x_count, x_len, x_pos_emb_idxs, x_test_char_sparse = self._pad(x_test, self.hparams.pad_id, char_sents=x_test_char_kv)
+      y_test, y_mask, y_count, y_len, y_pos_emb_idxs, y_test_char_sparse = self._pad(y_test, self.hparams.pad_id, char_sents=y_test_char_kv)
+    else:
+      x_test_char_sparse, y_test_char_sparse = None, None
+      x_test, x_mask, x_count, x_len, x_pos_emb_idxs = self._pad(x_test, self.hparams.pad_id)
+      y_test, y_mask, y_count, y_len, y_pos_emb_idxs = self._pad(y_test, self.hparams.pad_id)
 
     if end_index >= self.test_size:
       eop = True
@@ -367,7 +374,28 @@ class DataUtil(object):
       eop = False
       self.test_index += batch_size
 
-    return x_test, x_mask, x_count, x_len, x_pos_emb_idxs, y_test, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, eop, x_test_char, y_test_char
+    return x_test, x_mask, x_count, x_len, x_pos_emb_idxs, y_test, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, eop, x_test_char_sparse, y_test_char_sparse
+
+
+    #if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram or self.hparams.char_input is not None:
+    #  x_test_char_kv = self.test_x_char_kv[start_index:end_index]
+    #  y_test_char_kv = self.test_y_char_kv[start_index:end_index]
+    #if self.hparams.char_ngram_n > 0 or self.hparams.ngram_n or self.hparams.char_input is not None:
+    #  x_test, x_mask, x_count, x_len, x_pos_emb_idxs, x_test_char = self._pad(x_test, self.pad_id, x_test_char_kv, self.hparams.src_char_vsize)
+    #  y_test, y_mask, y_count, y_len, y_pos_emb_idxs, y_test_char = self._pad(y_test, self.pad_id, y_test_char_kv, self.hparams.trg_char_vsize)
+    #else:
+    #  x_test_char, y_test_char = None, None
+    #  x_test, x_mask, x_count, x_len, x_pos_emb_idxs = self._pad(x_test, self.pad_id)
+    #  y_test, y_mask, y_count, y_len, y_pos_emb_idxs = self._pad(y_test, self.pad_id)
+
+    #if end_index >= self.test_size:
+    #  eop = True
+    #  self.test_index = 0
+    #else:
+    #  eop = False
+    #  self.test_index += batch_size
+
+    #return x_test, x_mask, x_count, x_len, x_pos_emb_idxs, y_test, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, eop, x_test_char, y_test_char
 
   def sort_by_xlen(self, x, y, x_char_kv=None, y_char_kv=None, file_index=None):
     x = np.array(x)
@@ -424,8 +452,10 @@ class DataUtil(object):
     padded_sentences = Variable(torch.LongTensor(padded_sentences))
     mask = torch.ByteTensor(mask)
     pos_emb_indices = [[i+1 for i in range(len(s))] + ([0]*(max_len - len(s))) for s in sentences]
+    pos_emb_indices = Variable(torch.FloatTensor(pos_emb_indices))
     if self.hparams.cuda:
       padded_sentences = padded_sentences.cuda()
+      pos_emb_indices = pos_emb_indices.cuda()
       mask = mask.cuda()
     if char_kv:
       return padded_sentences, mask, count, lengths, pos_emb_indices, char_sparse

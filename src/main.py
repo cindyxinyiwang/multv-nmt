@@ -102,6 +102,8 @@ parser.add_argument("--n_train_epochs", type=int, default=0, help="n_train_epoch
 parser.add_argument("--dropout", type=float, default=0., help="probability of dropping")
 parser.add_argument("--lr", type=float, default=0.001, help="learning rate")
 parser.add_argument("--lr_dec", type=float, default=0.5, help="learning rate decay")
+parser.add_argument("--n_warm_ups", type=int, default=0, help="lr warm up steps")
+parser.add_argument("--lr_schedule", action="store_true", help="whether to use transformer lr schedule")
 parser.add_argument("--clip_grad", type=float, default=5., help="gradient clipping")
 parser.add_argument("--l2_reg", type=float, default=0., help="L2 regularization")
 parser.add_argument("--patience", type=int, default=-1, help="patience")
@@ -181,12 +183,25 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
       break
   # BLEU eval
   if eval_bleu:
-    x_valid = data.dev_x
-    x_dev_char, y_dev_char = data.get_trans_char(data.dev_x_char_kv, data.src_char_vsize), data.get_trans_char(data.dev_y_char_kv, data.trg_char_vsize)
-    hyps = model.translate(
-          x_valid, beam_size=args.beam_size, max_len=args.max_trans_len, poly_norm_m=args.poly_norm_m, x_train_char=x_dev_char, y_train_char=y_dev_char)
-    #print(x_valid)
-    #print(hyps)
+    #x_valid = data.dev_x
+    #x_dev_char, y_dev_char = data.get_trans_char(data.dev_x_char_kv, data.src_char_vsize), data.get_trans_char(data.dev_y_char_kv, data.trg_char_vsize)
+    #hyps = model.translate(
+    #      x_valid, beam_size=args.beam_size, max_len=args.max_trans_len, poly_norm_m=args.poly_norm_m, x_train_char=x_dev_char, y_train_char=y_dev_char)
+    hyps = []
+    while True:
+      gc.collect()
+      x_valid, x_mask, x_count, x_len, x_pos_emb_idxs, y_valid, y_mask, \
+              y_count, y_len, y_pos_emb_idxs, batch_size, end_of_epoch, \
+              x_valid_char_sparse, y_valid_char_sparse = data.next_dev(dev_batch_size=valid_batch_size)
+      if args.model_type == 'seq2seq':
+        hs = model.translate(
+                x_valid, beam_size=args.beam_size, max_len=args.max_trans_len, poly_norm_m=args.poly_norm_m, x_train_char=x_valid_char_sparse, y_train_char=y_valid_char_sparse)
+      elif args.model_type == 'transformer': 
+        hs = model.translate(
+                x_valid, x_mask, x_pos_emb_idxs, x_char_sparse_batch=x_valid_char_sparse, beam_size=args.beam_size, max_len=args.max_trans_len, poly_norm_m=args.poly_norm_m)
+      hyps.extend(hs)
+      if end_of_epoch:
+        break
     for h in hyps:
       h_best_words = map(lambda wi: data.trg_i2w_list[0][wi],
                        filter(lambda wi: wi not in [hparams.bos_id, hparams.eos_id], h))
@@ -299,6 +314,8 @@ def train():
       pretrained_src_emb_list=args.pretrained_src_emb_list,
       pretrained_trg_emb=args.pretrained_trg_emb,
       pos_emb_size=args.pos_emb_size,
+      lr_schedule=args.lr_schedule,
+      n_warm_ups=args.n_warm_ups,
     )
   # build or load model
   print("-" * 80)
@@ -375,8 +392,8 @@ def train():
     optim = torch.optim.Adam(trainable_params, lr=hparams.lr, weight_decay=hparams.l2_reg)
     #optim = torch.optim.Adam(trainable_params)
     step = 0
-    best_val_ppl = 100
-    best_val_bleu = 0
+    best_val_ppl = None
+    best_val_bleu = None
     cur_attempt = 0
     lr = hparams.lr
 
@@ -401,17 +418,27 @@ def train():
   #i = 0
   dev_zero = args.dev_zero
   while True:
+    step += 1
     x_train, x_mask, x_count, x_len, x_pos_emb_idxs, y_train, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_train_char_sparse, y_train_char_sparse, eop, file_idx = data.next_train()
     optim.zero_grad()
     target_words += (y_count - batch_size)
     logits = model.forward(x_train, x_mask, x_len, x_pos_emb_idxs, y_train[:,:-1], y_mask[:,:-1], y_len, y_pos_emb_idxs, x_train_char_sparse, y_train_char_sparse, file_idx=file_idx)
     logits = logits.view(-1, hparams.trg_vocab_size)
     labels = y_train[:,1:].contiguous().view(-1)
-    #print(labels)
+    # set learning rate
+    if args.lr_schedule:
+      s = step + 1
+      lr = pow(hparams.d_model, -0.5) * min(
+        pow(s, -0.5), s * pow(hparams.n_warm_ups, -1.5))
+      set_lr(optim, lr)
+    elif step < hparams.n_warm_ups:
+      base_lr = hparams.lr
+      base_lr = base_lr * (step + 1) / hparams.n_warm_ups
+      set_lr(optim, base_lr)
+      lr = base_lr
     tr_loss, tr_acc = get_performance(crit, logits, labels, hparams)
     total_loss += tr_loss.item()
     total_corrects += tr_acc.item()
-    step += 1
 
     if dev_zero:
       dev_zero = False
@@ -437,7 +464,7 @@ def train():
       if save or args.always_save:
       	save_checkpoint([step, best_val_ppl, best_val_bleu, cur_attempt, lr], 
       		             model, optim, hparams, args.output_dir)
-      else:
+      elif not args.lr_schedule and step >= hparams.n_warm_ups:
         lr = lr * args.lr_dec
         set_lr(optim, lr)
       # reset counter after eval
@@ -445,7 +472,6 @@ def train():
       target_words = total_corrects = total_loss = 0
       target_rules = target_total = target_eos = 0
       total_word_loss = total_rule_loss = total_eos_loss = 0
-
     tr_loss.div_(batch_size)
     tr_loss.backward()
     grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad)
@@ -480,12 +506,12 @@ def train():
     else:
       eval_now = False 
     if eval_now:
-      based_on_bleu = args.eval_bleu and best_val_ppl <= args.ppl_thresh
+      based_on_bleu = args.eval_bleu and best_val_ppl is not None and best_val_ppl <= args.ppl_thresh
       if args.dev_zero: based_on_bleu = True
       with torch.no_grad():
         val_ppl, val_bleu = eval(model, data, crit, step, hparams, eval_bleu=based_on_bleu, valid_batch_size=args.valid_batch_size, tr_logits=logits)	
       if based_on_bleu:
-        if best_val_bleu <= val_bleu:
+        if best_val_bleu is None or best_val_bleu <= val_bleu:
           save = True 
           best_val_bleu = val_bleu
           cur_attempt = 0
@@ -493,7 +519,7 @@ def train():
           save = False
           cur_attempt += 1
       else:
-      	if best_val_ppl >= val_ppl:
+      	if best_val_ppl is None or best_val_ppl >= val_ppl:
           save = True
           best_val_ppl = val_ppl
           cur_attempt = 0 
@@ -503,7 +529,7 @@ def train():
       if save or args.always_save:
       	save_checkpoint([step, best_val_ppl, best_val_bleu, cur_attempt, lr], 
       		             model, optim, hparams, args.output_dir)
-      else:
+      elif not args.lr_schedule and step >= hparams.n_warm_ups:
         lr = lr * args.lr_dec
         set_lr(optim, lr)
       # reset counter after eval
@@ -516,7 +542,8 @@ def train():
     elif args.n_train_epochs > 0:
       if epoch >= args.n_train_epochs: break
     else:
-      if step > args.n_train_steps: break 
+      if step > args.n_train_steps: break
+
 def main():
   random.seed(args.seed)
   np.random.seed(args.seed)
