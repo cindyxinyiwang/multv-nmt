@@ -316,6 +316,7 @@ def train():
       pos_emb_size=args.pos_emb_size,
       lr_schedule=args.lr_schedule,
       n_warm_ups=args.n_warm_ups,
+      model_type=args.model_type,
     )
   # build or load model
   print("-" * 80)

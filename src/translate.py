@@ -16,6 +16,7 @@ from data_utils import DataUtil
 from hparams import *
 from utils import *
 from model import *
+from transformer import *
 
 import torch
 import torch.nn as nn
@@ -99,6 +100,11 @@ filts = [model.hparams.pad_id, model.hparams.eos_id, model.hparams.bos_id]
 
 if not hasattr(model, 'data'):
   model.data = data
+if not hasattr(hparams, 'model_type'):
+  if type(model) == Seq2Seq:
+    hparams.model_type = "seq2seq"
+  elif type(model) == Transformer:
+    hparams.model_type = 'transformer'
 
 if args.debug:
   hparams.add_param("target_word_vocab_size", data.target_word_vocab_size)
@@ -117,8 +123,33 @@ else:
   y_test = None
 #print(x_test)
 with torch.no_grad():
-  hyps = model.translate(
-        x_test, beam_size=args.beam_size, max_len=args.max_len, poly_norm_m=args.poly_norm_m, x_train_char=data.test_x_char, y_train_char=data.test_y_char)
+  hyps = []
+  while True:
+    gc.collect()
+    x_valid, x_mask, x_count, x_len, x_pos_emb_idxs, y_valid, y_mask, \
+            y_count, y_len, y_pos_emb_idxs, batch_size, end_of_epoch, \
+            x_valid_char_sparse, y_valid_char_sparse = data.next_test(test_batch_size=10)
+    if hparams.model_type == 'seq2seq':
+      hs = model.translate(
+              x_valid, beam_size=args.beam_size, max_len=args.max_len, poly_norm_m=args.poly_norm_m, x_train_char=x_valid_char_sparse, y_train_char=y_valid_char_sparse)
+    elif hparams.model_type == 'transformer': 
+      hs = model.translate(
+              x_valid, x_mask, x_pos_emb_idxs, x_char_sparse_batch=x_valid_char_sparse, beam_size=args.beam_size, max_len=args.max_len, poly_norm_m=args.poly_norm_m)
+    hyps.extend(hs)
+    for h in hs:
+      h_best_words = map(lambda wi: data.trg_i2w_list[0][wi],
+                       filter(lambda wi: wi not in filts, h))
+      if hparams.merge_bpe:
+        line = ''.join(h_best_words)
+        line = line.replace('▁', ' ')
+      else:
+        line = ' '.join(h_best_words)
+      line = line.strip()
+      out_file.write(line + '\n')
+      out_file.flush()
+
+    if end_of_epoch:
+      break    
 
 if args.debug:
   forward_scores = []
@@ -166,20 +197,4 @@ if args.nbest:
       out_file.write(line + '\n')
       out_file.flush()
     out_file.write('\n')
-else:
-  for h in hyps:
-    h_best_words = map(lambda wi: data.trg_i2w_list[0][wi],
-                     filter(lambda wi: wi not in filts, h))
-    if hparams.merge_bpe:
-      line = ''.join(h_best_words)
-      line = line.replace('▁', ' ')
-    else:
-      line = ' '.join(h_best_words)
-    line = line.strip()
-    out_file.write(line + '\n')
-    out_file.flush()
-
-print("Translated {0} sentences".format(num_sentences))
-sys.stdout.flush()
-
 out_file.close()
