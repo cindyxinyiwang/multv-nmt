@@ -115,7 +115,7 @@ parser.add_argument("--init_range", type=float, default=0.1, help="L2 init range
 parser.add_argument("--init_type", type=str, default="uniform", help="uniform|xavier_uniform|xavier_normal|kaiming_uniform|kaiming_normal")
 
 parser.add_argument("--share_emb_softmax", action="store_true", help="weight tieing")
-parser.add_argument("--label_smoothing", action="store_true", help="label smooth")
+parser.add_argument("--label_smoothing", type=float, default=None, help="label smooth")
 parser.add_argument("--reset_hparams", action="store_true", help="whether to reload the hparams")
 
 parser.add_argument("--char_ngram_n", type=int, default=0, help="use char_ngram embedding")
