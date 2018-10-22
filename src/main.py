@@ -330,6 +330,8 @@ def train():
     model = torch.load(model_file_name)
     if not hasattr(model, 'data'):
       model.data = data
+    if not hasattr(model.hparams, 'transformer_wdrop'):
+      model.hparams.transformer_wdrop = False
 
     optim_file_name = os.path.join(args.output_dir, "optimizer.pt")
     print("Loading optimizer from {}".format(optim_file_name))
