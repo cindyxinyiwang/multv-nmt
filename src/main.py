@@ -102,6 +102,10 @@ parser.add_argument("--n_train_epochs", type=int, default=0, help="n_train_epoch
 parser.add_argument("--dropout", type=float, default=0., help="probability of dropping")
 parser.add_argument("--lr", type=float, default=0.001, help="learning rate")
 parser.add_argument("--lr_dec", type=float, default=0.5, help="learning rate decay")
+parser.add_argument("--lr_min", type=float, default=0.0001, help="min learning rate")
+parser.add_argument("--lr_max", type=float, default=0.001, help="max learning rate")
+parser.add_argument("--lr_dec_steps", type=int, default=None, help="cosine delay: learning rate decay steps")
+
 parser.add_argument("--n_warm_ups", type=int, default=0, help="lr warm up steps")
 parser.add_argument("--lr_schedule", action="store_true", help="whether to use transformer lr schedule")
 parser.add_argument("--clip_grad", type=float, default=5., help="gradient clipping")
@@ -134,6 +138,7 @@ parser.add_argument("--trg_char_only", action="store_true", help="only use char 
 parser.add_argument("--model_type", type=str, default="seq2seq", help="[seq2seq|transformer]")
 parser.add_argument("--share_emb_and_softmax", action="store_true", help="only use char emb on trg")
 parser.add_argument("--transformer_wdrop", action="store_true", help="whether to drop out word embedding of transformer")
+parser.add_argument("--transformer_relative_pos", action="store_true", help="whether to use relative positional encoding of transformer")
 args = parser.parse_args()
 
 if args.bpe_ngram: args.n = None
@@ -316,9 +321,13 @@ def train():
       pretrained_trg_emb=args.pretrained_trg_emb,
       pos_emb_size=args.pos_emb_size,
       lr_schedule=args.lr_schedule,
+      lr_max=args.lr_max,
+      lr_min=args.lr_min,
+      lr_dec_steps=args.lr_dec_steps,
       n_warm_ups=args.n_warm_ups,
       model_type=args.model_type,
       transformer_wdrop=args.transformer_wdrop,
+      transformer_relative_pos=args.transformer_relative_pos,
     )
   # build or load model
   print("-" * 80)
@@ -433,6 +442,10 @@ def train():
       s = step + 1
       lr = pow(hparams.d_model, -0.5) * min(
         pow(s, -0.5), s * pow(hparams.n_warm_ups, -1.5))
+      set_lr(optim, lr)
+    elif args.lr_dec_steps > 0:
+      s = step % args.lr_dec_steps
+      lr = args.lr_min + 0.5*(args.lr_max-args.lr_min)*(1+np.cos(s*np.pi/args.lr_dec_steps))
       set_lr(optim, lr)
     elif step < hparams.n_warm_ups:
       base_lr = hparams.lr
