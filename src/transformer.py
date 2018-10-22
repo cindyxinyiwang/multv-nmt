@@ -70,7 +70,8 @@ class Encoder(nn.Module):
     else:
       word_emb = self.word_emb(x_train) * self.emb_scale
     enc_input = word_emb + pos_emb
-
+    if self.hparams.transformer_wdrop:
+      enc_input = self.dropout(enc_input)
     # [batch_size, 1, max_len] -> [batch_size, len_q, len_k]
     attn_mask = x_mask.unsqueeze(1).expand(-1, max_len, -1).contiguous()
     enc_output = self.dropout(enc_input)

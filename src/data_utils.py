@@ -318,9 +318,10 @@ class DataUtil(object):
     if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram or self.hparams.char_input is not None:
       x_dev_char_kv = self.dev_x_char_kv[start_index:end_index]
       y_dev_char_kv = self.dev_y_char_kv[start_index:end_index]
-      x_dev, y_dev, x_dev_char_kv, y_dev_char_kv = self.sort_by_xlen(x_dev, y_dev, x_dev_char_kv, y_dev_char_kv)
+      #x_dev, y_dev, x_dev_char_kv, y_dev_char_kv = self.sort_by_xlen(x_dev, y_dev, x_dev_char_kv, y_dev_char_kv)
     else:
-      x_dev, y_dev = self.sort_by_xlen(x_dev, y_dev)
+      pass
+      #x_dev, y_dev = self.sort_by_xlen(x_dev, y_dev)
 
     if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
       x_dev, x_mask, x_count, x_len, x_pos_emb_idxs, x_dev_char_sparse = self._pad(x_dev, self.hparams.pad_id, x_dev_char_kv, self.hparams.src_char_vsize)
@@ -352,9 +353,10 @@ class DataUtil(object):
     if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram or self.hparams.char_input is not None:
       x_test_char_kv = self.test_x_char_kv[start_index:end_index]
       y_test_char_kv = self.test_y_char_kv[start_index:end_index]
-      x_test, y_test, x_test_char_kv, y_test_char_kv = self.sort_by_xlen(x_test, y_test, x_test_char_kv, y_test_char_kv)
+      #x_test, y_test, x_test_char_kv, y_test_char_kv = self.sort_by_xlen(x_test, y_test, x_test_char_kv, y_test_char_kv)
     else:
-      x_test, y_test = self.sort_by_xlen(x_test, y_test)
+      pass
+      #x_test, y_test = self.sort_by_xlen(x_test, y_test)
 
     if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
       x_test, x_mask, x_count, x_len, x_pos_emb_idxs, x_test_char_sparse = self._pad(x_test, self.hparams.pad_id, x_test_char_kv, self.hparams.src_char_vsize)
