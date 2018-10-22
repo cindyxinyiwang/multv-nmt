@@ -133,6 +133,7 @@ parser.add_argument("--trg_char_only", action="store_true", help="only use char 
 
 parser.add_argument("--model_type", type=str, default="seq2seq", help="[seq2seq|transformer]")
 parser.add_argument("--share_emb_and_softmax", action="store_true", help="only use char emb on trg")
+parser.add_argument("--transformer_wdrop", action="store_true", help="whether to drop out word embedding of transformer")
 args = parser.parse_args()
 
 if args.bpe_ngram: args.n = None
@@ -317,6 +318,7 @@ def train():
       lr_schedule=args.lr_schedule,
       n_warm_ups=args.n_warm_ups,
       model_type=args.model_type,
+      transformer_wdrop=args.transformer_wdrop,
     )
   # build or load model
   print("-" * 80)
