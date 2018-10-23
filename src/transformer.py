@@ -24,7 +24,8 @@ class Encoder(nn.Module):
     self.hparams = hparams
     assert self.hparams.d_word_vec == self.hparams.d_model
 
-    self.pos_emb = PositionalEmbedding(hparams)
+    if not self.hparams.transformer_relative_pos:
+      self.pos_emb = PositionalEmbedding(hparams)
     if self.hparams.semb:
       print("using SDE...")
       if self.hparams.semb_vsize is None:
@@ -43,7 +44,8 @@ class Encoder(nn.Module):
     self.dropout = nn.Dropout(self.hparams.dropout)
     if self.hparams.cuda:
       self.word_emb = self.word_emb.cuda()
-      self.pos_emb = self.pos_emb.cuda()
+      if not self.hparams.transformer_relative_pos:
+        self.pos_emb = self.pos_emb.cuda()
       self.layer_stack = self.layer_stack.cuda()
       self.dropout = self.dropout.cuda()
 
@@ -62,14 +64,18 @@ class Encoder(nn.Module):
     batch_size, max_len = x_train.size()
 
     # [batch_size, max_len, d_word_vec]
-    pos_emb = self.pos_emb(x_train)
+    if not self.hparams.transformer_relative_pos:
+      pos_emb = self.pos_emb(x_train)
     if self.hparams.semb:
       char_emb = self.char_emb(x_train_char, file_idx=file_idx)
       word_emb = self.word_emb(char_emb, x_train, file_idx=file_idx)
       word_emb = word_emb * self.emb_scale
     else:
       word_emb = self.word_emb(x_train) * self.emb_scale
-    enc_input = word_emb + pos_emb
+    if not self.hparams.transformer_relative_pos:
+      enc_input = word_emb + pos_emb
+    else:
+      enc_input = word_emb
     if self.hparams.transformer_wdrop:
       enc_input = self.dropout(enc_input)
     # [batch_size, 1, max_len] -> [batch_size, len_q, len_k]
@@ -86,7 +92,8 @@ class Decoder(nn.Module):
     super(Decoder, self).__init__()
     self.hparams = hparams
 
-    self.pos_emb = PositionalEmbedding(hparams)
+    if not self.hparams.transformer_relative_pos:
+      self.pos_emb = PositionalEmbedding(hparams)
     self.word_emb = nn.Embedding(self.hparams.trg_vocab_size,
                                  self.hparams.d_word_vec,
                                  padding_idx=hparams.pad_id)
@@ -99,7 +106,8 @@ class Decoder(nn.Module):
 
     if self.hparams.cuda:
       self.word_emb = self.word_emb.cuda()
-      self.pos_emb = self.pos_emb.cuda()
+      if not self.hparams.transformer_relative_pos:
+        self.pos_emb = self.pos_emb.cuda()
       self.layer_stack = self.layer_stack.cuda()
       self.dropout = self.dropout.cuda()
 
@@ -124,9 +132,13 @@ class Decoder(nn.Module):
     batch_size, y_len = y_mask.size()
 
     # [batch_size, x_len, d_word_vec]
-    pos_emb = self.pos_emb(y_train)
+    if not self.hparams.transformer_relative_pos:
+      pos_emb = self.pos_emb(y_train)
     word_emb = self.word_emb(y_train) * self.emb_scale
-    dec_input = word_emb + pos_emb
+    if not self.hparams.transformer_relative_pos:
+      dec_input = word_emb + pos_emb
+    else:
+      dec_input = word_emb
 
     # [batch_size, 1, y_len] -> [batch_size, y_len, y_len]
     y_time_mask = get_attn_subsequent_mask(y_train, pad_id=self.hparams.pad_id)

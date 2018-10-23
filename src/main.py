@@ -104,7 +104,7 @@ parser.add_argument("--lr", type=float, default=0.001, help="learning rate")
 parser.add_argument("--lr_dec", type=float, default=0.5, help="learning rate decay")
 parser.add_argument("--lr_min", type=float, default=0.0001, help="min learning rate")
 parser.add_argument("--lr_max", type=float, default=0.001, help="max learning rate")
-parser.add_argument("--lr_dec_steps", type=int, default=None, help="cosine delay: learning rate decay steps")
+parser.add_argument("--lr_dec_steps", type=int, default=0, help="cosine delay: learning rate decay steps")
 
 parser.add_argument("--n_warm_ups", type=int, default=0, help="lr warm up steps")
 parser.add_argument("--lr_schedule", action="store_true", help="whether to use transformer lr schedule")
@@ -346,6 +346,7 @@ def train():
     print("Loading optimizer from {}".format(optim_file_name))
     trainable_params = [
       p for p in model.parameters() if p.requires_grad]
+    #optim = torch.optim.Adam(trainable_params, lr=hparams.lr, betas=(0.9, 0.98), eps=1e-9, weight_decay=hparams.l2_reg)
     optim = torch.optim.Adam(trainable_params, lr=hparams.lr, weight_decay=hparams.l2_reg)
     optimizer_state = torch.load(optim_file_name)
     optim.load_state_dict(optimizer_state)
@@ -392,7 +393,7 @@ def train():
       else:
         print("Model {} not implemented".format(args.model_type))
         exit(0)
-      if args.init_type == "uniform":
+      if args.init_type == "uniform" and not hparams.model_type == "transformer":
         print("initialize uniform with range {}".format(args.init_range))
         for p in model.parameters():
           p.data.uniform_(-args.init_range, args.init_range)
@@ -445,15 +446,16 @@ def train():
       lr = pow(hparams.d_model, -0.5) * min(
         pow(s, -0.5), s * pow(hparams.n_warm_ups, -1.5))
       set_lr(optim, lr)
-    elif args.lr_dec_steps > 0:
-      s = step % args.lr_dec_steps
-      lr = args.lr_min + 0.5*(args.lr_max-args.lr_min)*(1+np.cos(s*np.pi/args.lr_dec_steps))
-      set_lr(optim, lr)
     elif step < hparams.n_warm_ups:
       base_lr = hparams.lr
       base_lr = base_lr * (step + 1) / hparams.n_warm_ups
       set_lr(optim, base_lr)
       lr = base_lr
+    elif args.lr_dec_steps > 0:
+      s = step % args.lr_dec_steps
+      lr = args.lr_min + 0.5*(args.lr_max-args.lr_min)*(1+np.cos(s*np.pi/args.lr_dec_steps))
+      set_lr(optim, lr)
+
     tr_loss, tr_acc = get_performance(crit, logits, labels, hparams)
     total_loss += tr_loss.item()
     total_corrects += tr_acc.item()
@@ -492,7 +494,8 @@ def train():
       total_word_loss = total_rule_loss = total_eos_loss = 0
     tr_loss.div_(batch_size)
     tr_loss.backward()
-    grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad)
+    grad_norm = grad_clip(trainable_params, grad_bound=args.clip_grad)
+    #grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad)
     optim.step()
     # clean up GPU memory
     if step % args.clean_mem_every == 0:

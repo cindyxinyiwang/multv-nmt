@@ -77,7 +77,7 @@ def init_param(p, init_type="uniform", init_range=None):
     init.kaiming_uniform(p)
   elif init_type == "uniform":
     assert init_range is not None and init_range > 0
-    init.uniform(p, -init_range, init_range)
+    init.uniform_(p, -init_range, init_range)
   else:
     raise ValueError("Unknown init_type '{0}'".format(init_type))
 
