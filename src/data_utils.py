@@ -399,11 +399,13 @@ class DataUtil(object):
 
     #return x_test, x_mask, x_count, x_len, x_pos_emb_idxs, y_test, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, eop, x_test_char, y_test_char
 
-  def sort_by_xlen(self, x, y, x_char_kv=None, y_char_kv=None, file_index=None):
+  def sort_by_xlen(self, x, y, x_char_kv=None, y_char_kv=None, file_index=None, descend=True):
     x = np.array(x)
     y = np.array(y)
     x_len = [len(i) for i in x]
-    index = np.argsort(x_len)[::-1]
+    index = np.argsort(x_len)
+    if descend:
+      index = index[::-1]
     x, y = x[index].tolist(), y[index].tolist()
     if file_index:
       file_index = np.array(file_index)
@@ -599,10 +601,15 @@ class DataUtil(object):
         trg_char.append([self.hparams.pad_id])
         src_char_data.append(src_char)
         trg_char_data.append(trg_char)
-
       line_count += 1
       if line_count % 10000 == 0:
         print("processed {} lines".format(line_count))
+    if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
+      src_data, trg_data, src_char_kv_data, trg_char_kv_data = self.sort_by_xlen(src_data, trg_data, src_char_kv_data, trg_char_kv_data, descend=False)
+    elif self.hparams.char_input is not None:
+      src_data, trg_data, src_char_data, trg_char_data = self.sort_by_xlen(src_data, trg_data, src_char_kv_data, trg_char_kv_data, descend=False)
+    else:
+      src_data, trg_data = self.sort_by_xlen(src_data, trg_data, descend=False)
     print("src_unk={}, trg_unk={}".format(src_unk_count, trg_unk_count))
     assert len(src_data) == len(trg_data)
     print("lines={}, skipped_lines={}".format(len(src_data), skip_line_count))

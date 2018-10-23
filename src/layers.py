@@ -30,13 +30,13 @@ class PositionalEmbedding(nn.Module):
       d_word_vec = self.hparams.d_word_vec
       self.emb_scale = self.hparams.init_range * d_word_vec
       freq = torch.arange(0, d_word_vec, 2).float() / d_word_vec
-      #self.freq = 1.0 / (10000.0 ** Variable(freq))
-      self.freq = 10000.0 ** Variable(freq)
+      self.freq = 1.0 / (10000.0 ** Variable(freq))
+      #self.freq = 10000.0 ** Variable(freq)
       #print(self.freq)
       if self.hparams.cuda:
         self.freq = self.freq.cuda()
 
-  def forward(self, x):
+  def forward(self, x=None, pos=None):
     """Compute positional embeddings.
 
     Args:
@@ -47,20 +47,24 @@ class PositionalEmbedding(nn.Module):
     """
 
     d_word_vec = self.hparams.d_word_vec
-    batch_size, max_len = x.size()
-    pos = Variable(torch.arange(0, max_len))
+    if pos is not None:
+      batch_size, max_len = pos.size()
+      pos = Variable(pos)
+    else:
+      batch_size, max_len = x.size()
+      pos = Variable(torch.arange(0, max_len))
     if self.hparams.cuda:
       pos = pos.cuda()
     if self.hparams.pos_emb_size is not None:
       pos = pos.add_(1).long().unsqueeze(0).expand_as(x).contiguous()
       emb = self.emb(pos)
     else:
-      #emb = pos.float().unsqueeze(-1) * self.freq.unsqueeze(0)
-      #sin = torch.sin(emb).mul_(self.emb_scale).unsqueeze(-1)
-      #cos = torch.cos(emb).mul_(self.emb_scale).unsqueeze(-1)
-      emb = pos.float().unsqueeze(-1) / self.freq.unsqueeze(0)
-      sin = torch.sin(emb).unsqueeze(-1)
-      cos = torch.cos(emb).unsqueeze(-1)
+      emb = pos.float().unsqueeze(-1) * self.freq.unsqueeze(0)
+      sin = torch.sin(emb).mul_(self.emb_scale).unsqueeze(-1)
+      cos = torch.cos(emb).mul_(self.emb_scale).unsqueeze(-1)
+      #emb = pos.float().unsqueeze(-1) / self.freq.unsqueeze(0)
+      #sin = torch.sin(emb).unsqueeze(-1)
+      #cos = torch.cos(emb).unsqueeze(-1)
       emb = torch.cat([sin, cos], dim=-1).contiguous().view(max_len, d_word_vec)
       emb = emb.unsqueeze(0).expand(batch_size, -1, -1)
 
@@ -137,6 +141,136 @@ class ScaledDotProdAttn(nn.Module):
     output = torch.bmm(attn, v).contiguous()
 
     return output
+
+
+class RelativeMultiHeadAttn(nn.Module):
+  def __init__(self, hparams):
+    super(RelativeMultiHeadAttn, self).__init__()
+
+    self.hparams = hparams
+
+    self.attention = ScaledDotProdAttn(hparams)
+    self.layer_norm = LayerNormalization(hparams.d_model)
+    self.temp = np.power(hparams.d_model, 0.5)
+    self.softmax = nn.Softmax(dim=-1)
+    self.pos_emb = PositionalEmbedding(hparams)
+    self.dropout = nn.Dropout(hparams.dropout)
+    # projection of concatenated attn
+    n_heads = self.hparams.n_heads
+    d_model = self.hparams.d_model
+    d_q = self.hparams.d_k
+    d_k = self.hparams.d_k
+    d_v = self.hparams.d_v
+
+    Q, K, V, R = [], [], [], []
+    for head_id in range(n_heads):
+      q = nn.Linear(d_model, d_q, bias=False)
+      k = nn.Linear(d_model, d_k, bias=False)
+      v = nn.Linear(d_model, d_v, bias=False)
+      r = nn.Linear(self.hparams.d_word_vec, d_k, bias=False)
+      init_param(q.weight, init_type="uniform", init_range=hparams.init_range)
+      init_param(k.weight, init_type="uniform", init_range=hparams.init_range)
+      init_param(v.weight, init_type="uniform", init_range=hparams.init_range)
+      init_param(r.weight, init_type="uniform", init_range=hparams.init_range)
+      Q.append(q)
+      K.append(k)
+      V.append(v)
+      R.append(r)
+    self.Q = nn.ModuleList(Q)
+    self.K = nn.ModuleList(K)
+    self.V = nn.ModuleList(V)
+    self.R = nn.ModuleList(R)
+    if self.hparams.cuda:
+      self.Q = self.Q.cuda()
+      self.K = self.K.cuda()
+      self.V = self.V.cuda()
+      self.R = self.R.cuda()
+    self.u = nn.Linear(1, d_q, bias=False)
+    self.v = nn.Linear(1, d_q, bias=False)
+    self.w_proj = nn.Linear(n_heads * d_v, d_model, bias=False)
+    init_param(self.w_proj.weight, init_type="uniform", init_range=hparams.init_range)
+    if self.hparams.cuda:
+      self.w_proj = self.w_proj.cuda()
+      self.u = self.u.cuda()
+      self.v = self.v.cuda()
+
+  def forward(self, q, k, v, attn_mask=None):
+    """Performs the following computations:
+
+         head[i] = Attention(q * w_q[i], k * w_k[i], v * w_v[i])
+         outputs = concat(all head[i]) * self.w_proj
+
+    Args:
+      q: [batch_size, len_q, d_q].
+      k: [batch_size, len_k, d_k].
+      v: [batch_size, len_v, d_v].
+
+    Must have: len_k == len_v
+    Note: This batch_size is in general NOT the training batch_size, as
+      both sentences and time steps are batched together for efficiency.
+
+    Returns:
+      outputs: [batch_size, len_q, d_model].
+    """
+
+    residual = q 
+
+    n_heads = self.hparams.n_heads
+    d_model = self.hparams.d_model
+    d_q = self.hparams.d_k
+    d_k = self.hparams.d_k
+    d_v = self.hparams.d_v
+    batch_size = q.size(0)
+
+    heads = []
+    for Q, K, V, R in zip(self.Q, self.K, self.V, self.R):
+      head_q, head_k, head_v = Q(q), K(k), V(v)
+      batch_size, len_q, d_q = head_q.size()
+      batch_size, len_k, d_k = head_k.size()
+      batch_size, len_v, d_v = head_v.size()
+      assert d_q == d_k and len_k == len_v
+
+      # [batch_size, len_q, len_k]
+      attn = torch.bmm(head_q+self.u.weight.view(1, d_q), head_k.transpose(1, 2)) / self.temp
+
+      relative_pos = torch.arange(len_q, -len_k, -1).unsqueeze(0)
+      # [len_q + len_k, d_word_vec]
+      relative_pos_emb = self.pos_emb(pos=relative_pos).squeeze(0)
+      # [len_q + len_k, d_model]
+      head_relative_pos_emb = R(relative_pos_emb)
+      # [batch_size, len_q, len_q + len_k]
+      attn_pos = (head_q+self.v.weight.view(1, d_q)).matmul(head_relative_pos_emb.transpose(0, 1)) / self.temp
+      batch_pos_emb = []
+      for i in range(len_q):
+        # [batch_size, 1, len_k]
+        batch_pos_emb.append(attn_pos[:,i,len_q-i:len_q+len_k-i])
+        #print(batch_pos_emb[-1].size())
+      attn_pos = torch.stack(batch_pos_emb, dim=1)
+      attn = attn + attn_pos
+      # attn_mask: [batch_size, len_q, len_k]
+      if attn_mask is not None:
+        #attn.data.masked_fill_(attn_mask, -float("inf"))
+        attn.data.masked_fill_(attn_mask, -self.hparams.inf)
+      size = attn.size()
+      assert len(size) > 2 and len_q == size[1] and len_k == size[2]
+
+      # softmax along the len_k dimension
+      # [batch_size, len_q, len_k]
+      attn = self.softmax(attn).contiguous()
+
+      # [batch_size, len_q, len_k == len_v]
+      attn = self.dropout(attn)
+
+      # [batch_size, len_q, d_v]
+      head = torch.bmm(attn, head_v).contiguous()
+
+      heads.append(head)
+
+    outputs = torch.cat(heads, dim=-1).contiguous().view(batch_size, -1, n_heads * d_v)
+    outputs = self.w_proj(outputs)
+    outputs = self.layer_norm(outputs + residual)
+
+    return outputs
 
 
 class MultiHeadAttn(nn.Module):
@@ -253,7 +387,10 @@ class EncoderLayer(nn.Module):
     super(EncoderLayer, self).__init__()
 
     self.hparams = hparams
-    self.attn = MultiHeadAttn(hparams)
+    if self.hparams.transformer_relative_pos:
+      self.attn = RelativeMultiHeadAttn(hparams)
+    else:
+      self.attn = MultiHeadAttn(hparams)
     self.pos_ff = PositionwiseFF(hparams)
 
   def forward(self, enc_input, attn_mask=None):
@@ -275,8 +412,12 @@ class DecoderLayer(nn.Module):
   def __init__(self, hparams):
     super(DecoderLayer, self).__init__()
     self.hparams = hparams
-    self.y_attn = MultiHeadAttn(hparams)
-    self.x_attn = MultiHeadAttn(hparams)
+    if not self.hparams.transformer_relative_pos:
+      self.y_attn = MultiHeadAttn(hparams)
+      self.x_attn = MultiHeadAttn(hparams)
+    else:
+      self.y_attn = RelativeMultiHeadAttn(hparams)
+      self.x_attn = RelativeMultiHeadAttn(hparams)
     self.pos_ffn = PositionwiseFF(hparams)
 
   def forward(self, dec_input, enc_output, y_attn_mask=None, x_attn_mask=None, n_corrupts=0):
