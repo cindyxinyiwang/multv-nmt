@@ -604,12 +604,13 @@ class DataUtil(object):
       line_count += 1
       if line_count % 10000 == 0:
         print("processed {} lines".format(line_count))
-    if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
-      src_data, trg_data, src_char_kv_data, trg_char_kv_data = self.sort_by_xlen(src_data, trg_data, src_char_kv_data, trg_char_kv_data, descend=False)
-    elif self.hparams.char_input is not None:
-      src_data, trg_data, src_char_data, trg_char_data = self.sort_by_xlen(src_data, trg_data, src_char_kv_data, trg_char_kv_data, descend=False)
-    else:
-      src_data, trg_data = self.sort_by_xlen(src_data, trg_data, descend=False)
+    if is_train:
+      if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
+        src_data, trg_data, src_char_kv_data, trg_char_kv_data = self.sort_by_xlen(src_data, trg_data, src_char_kv_data, trg_char_kv_data, descend=False)
+      elif self.hparams.char_input is not None:
+        src_data, trg_data, src_char_data, trg_char_data = self.sort_by_xlen(src_data, trg_data, src_char_kv_data, trg_char_kv_data, descend=False)
+      else:
+        src_data, trg_data = self.sort_by_xlen(src_data, trg_data, descend=False)
     print("src_unk={}, trg_unk={}".format(src_unk_count, trg_unk_count))
     assert len(src_data) == len(trg_data)
     print("lines={}, skipped_lines={}".format(len(src_data), skip_line_count))
