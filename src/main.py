@@ -139,6 +139,7 @@ parser.add_argument("--model_type", type=str, default="seq2seq", help="[seq2seq|
 parser.add_argument("--share_emb_and_softmax", action="store_true", help="only use char emb on trg")
 parser.add_argument("--transformer_wdrop", action="store_true", help="whether to drop out word embedding of transformer")
 parser.add_argument("--transformer_relative_pos", action="store_true", help="whether to use relative positional encoding of transformer")
+parser.add_argument("--update_batch", type=int, default="1", help="for how many batches to call backward and optimizer update")
 args = parser.parse_args()
 
 if args.bpe_ngram: args.n = None
@@ -432,6 +433,7 @@ def train():
   model.train()
   #i = 0
   dev_zero = args.dev_zero
+  tr_loss = None
   while True:
     step += 1
     x_train, x_mask, x_count, x_len, x_pos_emb_idxs, y_train, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_train_char_sparse, y_train_char_sparse, eop, file_idx = data.next_train()
@@ -456,10 +458,13 @@ def train():
       lr = args.lr_min + 0.5*(args.lr_max-args.lr_min)*(1+np.cos(s*np.pi/args.lr_dec_steps))
       set_lr(optim, lr)
 
-    tr_loss, tr_acc = get_performance(crit, logits, labels, hparams)
-    total_loss += tr_loss.item()
-    total_corrects += tr_acc.item()
-
+    cur_tr_loss, cur_tr_acc = get_performance(crit, logits, labels, hparams)
+    total_loss += cur_tr_loss.item()
+    total_corrects += cur_tr_acc.item()
+    if tr_loss is None:
+      tr_loss = cur_tr_loss
+    else:
+      tr_loss = tr_loss + cur_tr_loss
     if dev_zero:
       dev_zero = False
       #based_on_bleu = args.eval_bleu and best_val_ppl <= args.ppl_thresh
@@ -492,11 +497,13 @@ def train():
       target_words = total_corrects = total_loss = 0
       target_rules = target_total = target_eos = 0
       total_word_loss = total_rule_loss = total_eos_loss = 0
-    tr_loss.div_(batch_size)
-    tr_loss.backward()
-    grad_norm = grad_clip(trainable_params, grad_bound=args.clip_grad)
-    #grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad)
-    optim.step()
+    if step % args.update_batch == 0:
+      tr_loss.div_(batch_size * args.update_batch)
+      tr_loss.backward()
+      grad_norm = grad_clip(trainable_params, grad_bound=args.clip_grad)
+      #grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad)
+      optim.step()
+      tr_loss = None
     # clean up GPU memory
     if step % args.clean_mem_every == 0:
       gc.collect()
@@ -508,7 +515,7 @@ def train():
       log_string = "ep={0:<3d}".format(epoch)
       log_string += " steps={0:<6.2f}".format(step / 1000)
       log_string += " lr={0:<9.7f}".format(lr)
-      log_string += " loss={0:<7.2f}".format(tr_loss.item())
+      log_string += " loss={0:<7.2f}".format(cur_tr_loss.item())
       log_string += " |g|={0:<5.2f}".format(grad_norm)
 
       log_string += " ppl={0:<8.2f}".format(np.exp(total_loss / target_words))
