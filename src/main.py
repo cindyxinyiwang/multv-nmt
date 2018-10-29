@@ -433,30 +433,14 @@ def train():
   model.train()
   #i = 0
   dev_zero = args.dev_zero
-  tr_loss = None
+  tr_loss, update_batch_size = None, 0
   while True:
     step += 1
     x_train, x_mask, x_count, x_len, x_pos_emb_idxs, y_train, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_train_char_sparse, y_train_char_sparse, eop, file_idx = data.next_train()
-    optim.zero_grad()
     target_words += (y_count - batch_size)
     logits = model.forward(x_train, x_mask, x_len, x_pos_emb_idxs, y_train[:,:-1], y_mask[:,:-1], y_len, y_pos_emb_idxs, x_train_char_sparse, y_train_char_sparse, file_idx=file_idx)
     logits = logits.view(-1, hparams.trg_vocab_size)
     labels = y_train[:,1:].contiguous().view(-1)
-    # set learning rate
-    if args.lr_schedule:
-      s = step + 1
-      lr = pow(hparams.d_model, -0.5) * min(
-        pow(s, -0.5), s * pow(hparams.n_warm_ups, -1.5))
-      set_lr(optim, lr)
-    elif step < hparams.n_warm_ups:
-      base_lr = hparams.lr
-      base_lr = base_lr * (step + 1) / hparams.n_warm_ups
-      set_lr(optim, base_lr)
-      lr = base_lr
-    elif args.lr_dec_steps > 0:
-      s = step % args.lr_dec_steps
-      lr = args.lr_min + 0.5*(args.lr_max-args.lr_min)*(1+np.cos(s*np.pi/args.lr_dec_steps))
-      set_lr(optim, lr)
 
     cur_tr_loss, cur_tr_acc = get_performance(crit, logits, labels, hparams)
     total_loss += cur_tr_loss.item()
@@ -465,6 +449,7 @@ def train():
       tr_loss = cur_tr_loss
     else:
       tr_loss = tr_loss + cur_tr_loss
+    update_batch_size += batch_size
     if dev_zero:
       dev_zero = False
       #based_on_bleu = args.eval_bleu and best_val_ppl <= args.ppl_thresh
@@ -498,22 +483,39 @@ def train():
       target_rules = target_total = target_eos = 0
       total_word_loss = total_rule_loss = total_eos_loss = 0
     if step % args.update_batch == 0:
-      tr_loss.div_(batch_size * args.update_batch)
+      # set learning rate
+      if args.lr_schedule:
+        s = step / args.update_batch + 1
+        lr = pow(hparams.d_model, -0.5) * min(
+          pow(s, -0.5), s * pow(hparams.n_warm_ups, -1.5))
+        set_lr(optim, lr)
+      elif step / args.update_batch < hparams.n_warm_ups:
+        base_lr = hparams.lr
+        base_lr = base_lr * (step / args.update_batch + 1) / hparams.n_warm_ups
+        set_lr(optim, base_lr)
+        lr = base_lr
+      elif args.lr_dec_steps > 0:
+        s = (step / args.update_batch) % args.lr_dec_steps
+        lr = args.lr_min + 0.5*(args.lr_max-args.lr_min)*(1+np.cos(s*np.pi/args.lr_dec_steps))
+        set_lr(optim, lr)
+      tr_loss.div_(update_batch_size)
       tr_loss.backward()
       grad_norm = grad_clip(trainable_params, grad_bound=args.clip_grad)
       #grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad)
       optim.step()
+      optim.zero_grad()
       tr_loss = None
+      update_batch_size = 0
     # clean up GPU memory
     if step % args.clean_mem_every == 0:
       gc.collect()
     epoch = step // sum(data.n_train_batches)
-    if step % args.log_every == 0:
+    if (step / args.update_batch) % args.log_every == 0:
       curr_time = time.time()
       since_start = (curr_time - start_time) / 60.0
       elapsed = (curr_time - log_start_time) / 60.0
       log_string = "ep={0:<3d}".format(epoch)
-      log_string += " steps={0:<6.2f}".format(step / 1000)
+      log_string += " steps={0:<6.2f}".format((step / args.update_batch) / 1000)
       log_string += " lr={0:<9.7f}".format(lr)
       log_string += " loss={0:<7.2f}".format(cur_tr_loss.item())
       log_string += " |g|={0:<5.2f}".format(grad_norm)
@@ -529,7 +531,7 @@ def train():
         eval_now = True
       else:
         eval_now = False
-    elif step % args.eval_every == 0:
+    elif (step / args.update_batch) % args.eval_every == 0:
       eval_now = True
     else:
       eval_now = False 
