@@ -610,9 +610,10 @@ class Encoder(nn.Module):
       elif self.hparams.char_comb == 'cat':
         word_emb = torch.cat([word_emb, char_emb], dim=-1)
     #word_emb = word_emb.permute(1, 0, 2)
-    packed_word_emb = pack_padded_sequence(word_emb, x_len)
-    enc_output, (ht, ct) = self.layer(packed_word_emb)
-    enc_output, _ = pad_packed_sequence(enc_output,  padding_value=self.hparams.pad_id)
+    #packed_word_emb = pack_padded_sequence(word_emb, x_len)
+    #enc_output, (ht, ct) = self.layer(packed_word_emb)
+    #enc_output, _ = pad_packed_sequence(enc_output,  padding_value=self.hparams.pad_id)
+    enc_output, (ht, ct) = self.layer(word_emb)
     enc_output = enc_output.permute(1, 0, 2)
 
     dec_init_cell = self.bridge(torch.cat([ct[0], ct[1]], 1))
@@ -711,7 +712,7 @@ class Decoder(nn.Module):
     logits = self.readout(torch.stack(pre_readouts)).transpose(0, 1).contiguous()
     return logits
 
-  def step(self, x_enc, x_enc_k, y_tm1, dec_state, ctx_t, data):
+  def step(self, x_enc, x_enc_k, x_mask, y_tm1, dec_state, ctx_t, data):
     if self.hparams.trg_char_only:
       y_emb_tm1 = Variable(torch.zeros( 1, self.hparams.d_word_vec), requires_grad=False)
       if self.hparams.cuda: y_emb_tm1 = y_emb_tm1.cuda()
@@ -733,7 +734,7 @@ class Decoder(nn.Module):
 
     y_input = torch.cat([y_emb_tm1, ctx_t], dim=1)
     h_t, c_t = self.layer(y_input, dec_state)
-    ctx = self.attention(h_t, x_enc_k, x_enc)
+    ctx = self.attention(h_t, x_enc_k, x_enc, attn_mask=x_mask)
     pre_readout = F.tanh(self.ctx_to_readout(torch.cat([h_t, ctx], dim=1)))
     logits = self.readout(pre_readout)
 
@@ -771,21 +772,22 @@ class Seq2Seq(nn.Module):
     logits = self.decoder(x_enc, x_enc_k, dec_init, x_mask, y_train, y_mask, y_train_char_sparse)
     return logits
 
-  def translate(self, x_train, max_len=100, beam_size=5, poly_norm_m=0, x_train_char=None, y_train_char=None):
+  def translate(self, x_train, x_mask, max_len=100, beam_size=5, poly_norm_m=0, x_train_char=None, y_train_char=None):
     hyps = []
     batch_size = x_train.size(0)
     for i in range(batch_size):
       x = x_train[i,:].unsqueeze(0)
+      mask = x_mask[i,:].unsqueeze(0)
       if x_train_char:
         # (1, max_len, char_dim)
         x_char = [x_train_char[i]]
       else:
         x_char = None
-      hyp = self.translate_sent(x, max_len=max_len, beam_size=beam_size, poly_norm_m=poly_norm_m, x_train_char=x_char)[0]
+      hyp = self.translate_sent(x, mask, max_len=max_len, beam_size=beam_size, poly_norm_m=poly_norm_m, x_train_char=x_char)[0]
       hyps.append(hyp.y[1:-1])
     return hyps
 
-  def translate_sent(self, x_train, max_len=100, beam_size=5, poly_norm_m=0, x_train_char=None):
+  def translate_sent(self, x_train, x_mask, max_len=100, beam_size=5, poly_norm_m=0, x_train_char=None):
     x_len = [x_train.size(0)]
     x_enc, dec_init = self.encoder(x_train, x_len, x_train_char, file_idx=[0])
     x_enc_k = self.enc_to_k(x_enc)
@@ -804,7 +806,7 @@ class Seq2Seq(nn.Module):
           y_tm1 = Variable(torch.LongTensor([int(hyp.y[-1])] ))
         if self.hparams.cuda:
           y_tm1 = y_tm1.cuda()
-        logits, dec_state, ctx = self.decoder.step(x_enc, x_enc_k, y_tm1, hyp.state, hyp.ctx_tm1, self.data)
+        logits, dec_state, ctx = self.decoder.step(x_enc, x_enc_k, x_mask, y_tm1, hyp.state, hyp.ctx_tm1, self.data)
         hyp.state = dec_state
         hyp.ctx_tm1 = ctx 
 
