@@ -272,7 +272,7 @@ class Transformer(nn.Module):
       else:
         x_char_sparse = None
       # translate one sentence
-      enc_output = self.encoder(x_train, x_mask, x_pos_emb_indices, x_char_sparse, file_idx=0)
+      enc_output = self.encoder(x_train, x_mask, x_pos_emb_indices, x_char_sparse, file_idx=[0])
       completed_hyp = []
       completed_hyp_scores = []
       active_hyp = [Hyp(y=[self.hparams.bos_id], score=0.)]
