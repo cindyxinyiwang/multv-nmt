@@ -131,7 +131,7 @@ with torch.no_grad():
             x_valid_char_sparse, y_valid_char_sparse = data.next_test(test_batch_size=10)
     if hparams.model_type == 'seq2seq':
       hs = model.translate(
-              x_valid, beam_size=args.beam_size, max_len=args.max_len, poly_norm_m=args.poly_norm_m, x_train_char=x_valid_char_sparse, y_train_char=y_valid_char_sparse)
+              x_valid, x_mask, beam_size=args.beam_size, max_len=args.max_len, poly_norm_m=args.poly_norm_m, x_train_char=x_valid_char_sparse, y_train_char=y_valid_char_sparse)
     elif hparams.model_type == 'transformer': 
       hs = model.translate(
               x_valid, x_mask, x_pos_emb_idxs, x_char_sparse_batch=x_valid_char_sparse, beam_size=args.beam_size, max_len=args.max_len, poly_norm_m=args.poly_norm_m)
