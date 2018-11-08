@@ -474,10 +474,10 @@ class uniEncoder(nn.Module):
     batch_size, max_len = x_train.size()
     word_emb = self.shared_emb(x_train, file_idx)
     word_emb = self.dropout(word_emb).permute(1, 0, 2)
-    enc_output, (ht, ct) = self.layer(word_emb)
-    #packed_word_emb = pack_padded_sequence(word_emb, x_len)
-    #enc_output, (ht, ct) = self.layer(packed_word_emb)
-    #enc_output, _ = pad_packed_sequence(enc_output,  padding_value=self.hparams.pad_id)
+    #enc_output, (ht, ct) = self.layer(word_emb)
+    packed_word_emb = pack_padded_sequence(word_emb, x_len)
+    enc_output, (ht, ct) = self.layer(packed_word_emb)
+    enc_output, _ = pad_packed_sequence(enc_output,  padding_value=self.hparams.pad_id)
     enc_output = enc_output.permute(1, 0, 2)
 
     dec_init_cell = self.bridge(torch.cat([ct[0], ct[1]], 1))
@@ -532,10 +532,10 @@ class sembEncoder(nn.Module):
     char_emb = self.char_emb(x_train_char, file_idx=file_idx)
     word_emb = self.word_emb(char_emb, x_train, file_idx=file_idx)
     word_emb = self.dropout(word_emb).permute(1, 0, 2)
-    enc_output, (ht, ct) = self.layer(word_emb)
-    #packed_word_emb = pack_padded_sequence(word_emb, x_len)
-    #enc_output, (ht, ct) = self.layer(packed_word_emb)
-    #enc_output, _ = pad_packed_sequence(enc_output,  padding_value=self.hparams.pad_id)
+    #enc_output, (ht, ct) = self.layer(word_emb)
+    packed_word_emb = pack_padded_sequence(word_emb, x_len)
+    enc_output, (ht, ct) = self.layer(packed_word_emb)
+    enc_output, _ = pad_packed_sequence(enc_output,  padding_value=self.hparams.pad_id)
     enc_output = enc_output.permute(1, 0, 2)
 
     dec_init_cell = self.bridge(torch.cat([ct[0], ct[1]], 1))
@@ -612,10 +612,10 @@ class Encoder(nn.Module):
       elif self.hparams.char_comb == 'cat':
         word_emb = torch.cat([word_emb, char_emb], dim=-1)
     #word_emb = word_emb.permute(1, 0, 2)
-    #packed_word_emb = pack_padded_sequence(word_emb, x_len)
-    #enc_output, (ht, ct) = self.layer(packed_word_emb)
-    #enc_output, _ = pad_packed_sequence(enc_output,  padding_value=self.hparams.pad_id)
-    enc_output, (ht, ct) = self.layer(word_emb)
+    packed_word_emb = pack_padded_sequence(word_emb, x_len)
+    enc_output, (ht, ct) = self.layer(packed_word_emb)
+    enc_output, _ = pad_packed_sequence(enc_output,  padding_value=self.hparams.pad_id)
+    #enc_output, (ht, ct) = self.layer(word_emb)
     enc_output = enc_output.permute(1, 0, 2)
 
     dec_init_cell = self.bridge(torch.cat([ct[0], ct[1]], 1))
@@ -790,7 +790,7 @@ class Seq2Seq(nn.Module):
     return hyps
 
   def translate_sent(self, x_train, x_mask, max_len=100, beam_size=5, poly_norm_m=0, x_train_char=None):
-    x_len = [x_train.size(0)]
+    x_len = [x_train.size(1)]
     x_enc, dec_init = self.encoder(x_train, x_len, x_train_char, file_idx=[0])
     x_enc_k = self.enc_to_k(x_enc)
     length = 0

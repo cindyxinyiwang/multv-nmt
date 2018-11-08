@@ -72,11 +72,14 @@ class PositionalEmbedding(nn.Module):
 
 
 class LayerNormalization(nn.Module):
-  def __init__(self, d_hid, eps=1e-9):
+  def __init__(self, d_hid, hparams, eps=1e-9):
     super(LayerNormalization, self).__init__()
 
     self.d_hid = d_hid
-    self.eps = eps
+    if hasattr(hparams, "layernorm_eps"):
+      self.eps = hparams.layernorm_eps
+    else:
+      self.eps = eps
     self.scale = nn.Parameter(torch.ones(self.d_hid), requires_grad=True)
     self.offset= nn.Parameter(torch.zeros(self.d_hid), requires_grad=True)
 
@@ -150,7 +153,7 @@ class RelativeMultiHeadAttn(nn.Module):
     self.hparams = hparams
 
     self.attention = ScaledDotProdAttn(hparams)
-    self.layer_norm = LayerNormalization(hparams.d_model)
+    self.layer_norm = LayerNormalization(hparams.d_model, hparams)
     self.temp = np.power(hparams.d_model, 0.5)
     self.softmax = nn.Softmax(dim=-1)
     self.pos_emb = PositionalEmbedding(hparams)
@@ -280,7 +283,7 @@ class MultiHeadAttn(nn.Module):
     self.hparams = hparams
 
     self.attention = ScaledDotProdAttn(hparams)
-    self.layer_norm = LayerNormalization(hparams.d_model)
+    self.layer_norm = LayerNormalization(hparams.d_model, hparams)
 
     # projection of concatenated attn
     n_heads = self.hparams.n_heads
@@ -363,7 +366,7 @@ class PositionwiseFF(nn.Module):
     self.w_2 = nn.Linear(hparams.d_inner, hparams.d_model, bias=False)
     self.dropout = nn.Dropout(hparams.dropout)
     self.relu = nn.ReLU()
-    self.layer_norm = LayerNormalization(hparams.d_model)
+    self.layer_norm = LayerNormalization(hparams.d_model, hparams)
 
     init_param(self.w_1.weight, init_type="uniform", init_range=hparams.init_range)
     init_param(self.w_2.weight, init_type="uniform", init_range=hparams.init_range)
