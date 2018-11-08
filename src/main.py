@@ -140,6 +140,7 @@ parser.add_argument("--share_emb_and_softmax", action="store_true", help="only u
 parser.add_argument("--transformer_wdrop", action="store_true", help="whether to drop out word embedding of transformer")
 parser.add_argument("--transformer_relative_pos", action="store_true", help="whether to use relative positional encoding of transformer")
 parser.add_argument("--update_batch", type=int, default="1", help="for how many batches to call backward and optimizer update")
+parser.add_argument("--layernorm_eps", type=float, default=1e-9, help="layernorm eps")
 args = parser.parse_args()
 
 if args.bpe_ngram: args.n = None
@@ -199,7 +200,7 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
       gc.collect()
       x_valid, x_mask, x_count, x_len, x_pos_emb_idxs, y_valid, y_mask, \
               y_count, y_len, y_pos_emb_idxs, batch_size, end_of_epoch, \
-              x_valid_char_sparse, y_valid_char_sparse = data.next_dev(dev_batch_size=valid_batch_size)
+              x_valid_char_sparse, y_valid_char_sparse = data.next_dev(dev_batch_size=1)
       if args.model_type == 'seq2seq':
         hs = model.translate(
                 x_valid, x_mask, beam_size=args.beam_size, max_len=args.max_trans_len, poly_norm_m=args.poly_norm_m, x_train_char=x_valid_char_sparse, y_train_char=y_valid_char_sparse)

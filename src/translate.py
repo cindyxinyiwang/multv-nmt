@@ -128,7 +128,7 @@ with torch.no_grad():
     gc.collect()
     x_valid, x_mask, x_count, x_len, x_pos_emb_idxs, y_valid, y_mask, \
             y_count, y_len, y_pos_emb_idxs, batch_size, end_of_epoch, \
-            x_valid_char_sparse, y_valid_char_sparse = data.next_test(test_batch_size=10)
+            x_valid_char_sparse, y_valid_char_sparse = data.next_test(test_batch_size=1)
     if hparams.model_type == 'seq2seq':
       hs = model.translate(
               x_valid, x_mask, beam_size=args.beam_size, max_len=args.max_len, poly_norm_m=args.poly_norm_m, x_train_char=x_valid_char_sparse, y_train_char=y_valid_char_sparse)
