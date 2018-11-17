@@ -139,6 +139,8 @@ parser.add_argument("--model_type", type=str, default="seq2seq", help="[seq2seq|
 parser.add_argument("--share_emb_and_softmax", action="store_true", help="only use char emb on trg")
 parser.add_argument("--transformer_wdrop", action="store_true", help="whether to drop out word embedding of transformer")
 parser.add_argument("--transformer_relative_pos", action="store_true", help="whether to use relative positional encoding of transformer")
+parser.add_argument("--relative_pos_c", action="store_true", help="whether to use relative positional encoding of transformer")
+parser.add_argument("--relative_pos_d", action="store_true", help="whether to use relative positional encoding of transformer")
 parser.add_argument("--update_batch", type=int, default="1", help="for how many batches to call backward and optimizer update")
 parser.add_argument("--layernorm_eps", type=float, default=1e-9, help="layernorm eps")
 args = parser.parse_args()
@@ -330,6 +332,8 @@ def train():
       model_type=args.model_type,
       transformer_wdrop=args.transformer_wdrop,
       transformer_relative_pos=args.transformer_relative_pos,
+      relative_pos_c=args.relative_pos_c,
+      relative_pos_d=args.relative_pos_d,
     )
   # build or load model
   print("-" * 80)

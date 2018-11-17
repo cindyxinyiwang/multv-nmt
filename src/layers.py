@@ -95,7 +95,7 @@ class ScaledDotProdAttn(nn.Module):
     super(ScaledDotProdAttn, self).__init__()
     self.temp = np.power(hparams.d_model, 0.5)
     self.dropout = nn.Dropout(hparams.dropout)
-    self.softmax = nn.Softmax(dim=-1)
+    self.softmax = nn.Softmax(dim=2)
     self.hparams = hparams
 
   def forward(self, q, k, v, attn_mask=None):
@@ -115,6 +115,21 @@ class ScaledDotProdAttn(nn.Module):
     Returns:
       attn: [batch_size, len_q, d_v].
     """
+    if q.dim() == 4:
+      # batch_size, n_heads, len, dim
+      batch_q, len_q, d_q, n_heads = q.size()
+      batch_k, len_k, d_k, n_heads = k.size()
+      batch_v, len_v, d_v, n_heads = v.size()
+    
+      # batch_size, len_q, len_k, n_heads
+      attn = torch.einsum("bidn,bjdn->bijn", (q, k)) / self.temp
+      # attn_mask: [batch_size, len_q, len_k]
+      if attn_mask is not None:
+        attn.data.masked_fill_(attn_mask.unsqueeze(3), -self.hparams.inf)
+      attn = self.softmax(attn).contiguous()
+      attn = self.dropout(attn)
+      output = torch.einsum("bijn,bjdn->bidn", (attn, v)).contiguous().view(batch_q, len_q, -1)
+      return output
 
     batch_q, len_q, d_q = q.size()
     batch_k, len_k, d_k = k.size()
@@ -165,6 +180,15 @@ class RelativeMultiHeadAttn(nn.Module):
     d_k = self.hparams.d_k
     d_v = self.hparams.d_v
 
+    #self.q = nn.Linear(d_model, n_heads * d_q, bias=False)
+    #self.k = nn.Linear(d_model, n_heads * d_k, bias=False)
+    #self.v = nn.Linear(d_model, n_heads * d_v, bias=False)
+    #self.r = nn.Linear(d_model, n_heads * d_v, bias=False)
+    #init_param(self.q.weight, init_type="uniform", init_range=hparams.init_range)
+    #init_param(self.k.weight, init_type="uniform", init_range=hparams.init_range)
+    #init_param(self.v.weight, init_type="uniform", init_range=hparams.init_range)
+    #init_param(self.r.weight, init_type="uniform", init_range=hparams.init_range)
+
     Q, K, V, R = [], [], [], []
     for head_id in range(n_heads):
       q = nn.Linear(d_model, d_q, bias=False)
@@ -188,14 +212,25 @@ class RelativeMultiHeadAttn(nn.Module):
       self.K = self.K.cuda()
       self.V = self.V.cuda()
       self.R = self.R.cuda()
-    self.u = nn.Linear(1, d_q, bias=False)
-    self.v = nn.Linear(1, d_q, bias=False)
+      #self.q = self.q.cuda()
+      #self.k = self.k.cuda()
+      #self.r = self.r.cuda()
+    if self.hparams.relative_pos_c:
+      #self.u = nn.Linear(1, d_q, bias=False)
+      self.u = nn.Linear(d_q, 1, bias=False)
+      init_param(self.u.weight, init_type="uniform", init_range=hparams.init_range)
+    if self.hparams.relative_pos_d:
+      #self.v = nn.Linear(1, d_q, bias=False)
+      self.v = nn.Linear(d_q, 1, bias=False)
+      init_param(self.v.weight, init_type="uniform", init_range=hparams.init_range)
     self.w_proj = nn.Linear(n_heads * d_v, d_model, bias=False)
     init_param(self.w_proj.weight, init_type="uniform", init_range=hparams.init_range)
     if self.hparams.cuda:
       self.w_proj = self.w_proj.cuda()
-      self.u = self.u.cuda()
-      self.v = self.v.cuda()
+      if self.hparams.relative_pos_c:
+        self.u = self.u.cuda()
+      if self.hparams.relative_pos_d:
+        self.v = self.v.cuda()
 
   def forward(self, q, k, v, attn_mask=None):
     """Performs the following computations:
@@ -225,34 +260,71 @@ class RelativeMultiHeadAttn(nn.Module):
     d_v = self.hparams.d_v
     batch_size = q.size(0)
 
+    #r = torch.arange(len_q, -len_k, -1).unsqueeze(0)
+    ## [1, len_q + len_k, d_word_vec]
+    #r = self.pos_emb(pos=r)
+
+    ## batch_size, len, d_q * n_head
+    #head_q, head_k, head_v, head_r = self.q(q), self.k(k), self.v(v), self.r(r)
+    ## batch_size, len, dim, n_head
+    #head_q = head_q.view(batch_size, q.size(1), -1, n_heads)
+    #head_k = head_k.view(batch_size, k.size(1), -1, n_heads)
+    #head_v = head_v.view(batch_size, v.size(1), -1, n_heads)
+
+    ## batch_size, len_q, len_k, n_heads
+    #attn = torch.einsum("bidn,bjdn->bijn", (head_q, head_k)) / self.temp
+    ## attn_mask: [batch_size, len_q, len_k]
+    #if attn_mask is not None:
+    #  attn.data.masked_fill_(attn_mask.unsqueeze(3), -self.hparams.inf)
+    #attn = self.softmax(attn).contiguous()
+    #attn = self.dropout(attn)
+    #output = torch.einsum("bijn,bjdn->bidn", (attn, v)).contiguous().view(batch_q, len_q, -1)
+
     heads = []
     for Q, K, V, R in zip(self.Q, self.K, self.V, self.R):
+
       head_q, head_k, head_v = Q(q), K(k), V(v)
       batch_size, len_q, d_q = head_q.size()
       batch_size, len_k, d_k = head_k.size()
       batch_size, len_v, d_v = head_v.size()
       assert d_q == d_k and len_k == len_v
 
-      # [batch_size, len_q, len_k]
-      attn = torch.bmm(head_q+self.u.weight.view(1, d_q), head_k.transpose(1, 2)) / self.temp
-
       relative_pos = torch.arange(len_q, -len_k, -1).unsqueeze(0)
       # [len_q + len_k, d_word_vec]
       relative_pos_emb = self.pos_emb(pos=relative_pos).squeeze(0)
       # [len_q + len_k, d_model]
-      head_relative_pos_emb = R(relative_pos_emb)
+      head_r = R(relative_pos_emb)
+
+
+      # [batch_size, len_q, len_k]
+      #attn = torch.bmm(head_q+self.u.weight.view(1, d_q), head_k.transpose(1, 2)) / self.temp
+      attn_a = torch.bmm(head_q, head_k.transpose(1, 2))
+      if self.hparams.relative_pos_c:
+        # [batch_size, len_k, 1]
+        attn_c = self.u(head_k).transpose(1, 2) 
+        attn = (attn_a + attn_c)
+      else:
+        attn = attn_a
+      #attn = torch.bmm(head_q, head_k.transpose(1, 2)) / self.temp
+
       # [batch_size, len_q, len_q + len_k]
-      attn_pos = (head_q+self.v.weight.view(1, d_q)).matmul(head_relative_pos_emb.transpose(0, 1)) / self.temp
+      #attn_pos = (head_q+self.v.weight.view(1, d_q)).matmul(head_r.transpose(0, 1)) / self.temp
+      attn_pos_b = (head_q).matmul(head_r.transpose(0, 1)) 
+      if self.hparams.relative_pos_d:
+        # [len_q + len_k, 1]
+        attn_pos_d = self.v(head_r).view(1, 1, -1)
+        attn_pos = (attn_pos_b + attn_pos_d)
+      else:
+        attn_pos = attn_pos_b 
       batch_pos_emb = []
       for i in range(len_q):
         # [batch_size, 1, len_k]
         batch_pos_emb.append(attn_pos[:,i,len_q-i:len_q+len_k-i])
         #print(batch_pos_emb[-1].size())
       attn_pos = torch.stack(batch_pos_emb, dim=1)
-      attn = attn + attn_pos
+      attn = (attn + attn_pos) / self.temp
       # attn_mask: [batch_size, len_q, len_k]
       if attn_mask is not None:
-        #attn.data.masked_fill_(attn_mask, -float("inf"))
         attn.data.masked_fill_(attn_mask, -self.hparams.inf)
       size = attn.size()
       assert len(size) > 2 and len_q == size[1] and len_k == size[2]
@@ -291,25 +363,35 @@ class MultiHeadAttn(nn.Module):
     d_q = self.hparams.d_k
     d_k = self.hparams.d_k
     d_v = self.hparams.d_v
+    # d_q == d_k == k_v
+    self.q = nn.Linear(d_model, n_heads * d_q, bias=False)
+    self.k = nn.Linear(d_model, n_heads * d_k, bias=False)
+    self.v = nn.Linear(d_model, n_heads * d_v, bias=False)
+    init_param(self.q.weight, init_type="uniform", init_range=hparams.init_range)
+    init_param(self.k.weight, init_type="uniform", init_range=hparams.init_range)
+    init_param(self.v.weight, init_type="uniform", init_range=hparams.init_range)
 
-    Q, K, V = [], [], []
-    for head_id in range(n_heads):
-      q = nn.Linear(d_model, d_q, bias=False)
-      k = nn.Linear(d_model, d_k, bias=False)
-      v = nn.Linear(d_model, d_v, bias=False)
-      init_param(q.weight, init_type="uniform", init_range=hparams.init_range)
-      init_param(k.weight, init_type="uniform", init_range=hparams.init_range)
-      init_param(v.weight, init_type="uniform", init_range=hparams.init_range)
-      Q.append(q)
-      K.append(k)
-      V.append(v)
-    self.Q = nn.ModuleList(Q)
-    self.K = nn.ModuleList(K)
-    self.V = nn.ModuleList(V)
+    # Q, K, V = [], [], []
+    # for head_id in range(n_heads):
+    #   q = nn.Linear(d_model, d_q, bias=False)
+    #   k = nn.Linear(d_model, d_k, bias=False)
+    #   v = nn.Linear(d_model, d_v, bias=False)
+    #   init_param(q.weight, init_type="uniform", init_range=hparams.init_range)
+    #   init_param(k.weight, init_type="uniform", init_range=hparams.init_range)
+    #   init_param(v.weight, init_type="uniform", init_range=hparams.init_range)
+    #   Q.append(q)
+    #   K.append(k)
+    #   V.append(v)
+    # self.Q = nn.ModuleList(Q)
+    # self.K = nn.ModuleList(K)
+    # self.V = nn.ModuleList(V)
     if self.hparams.cuda:
-      self.Q = self.Q.cuda()
-      self.K = self.K.cuda()
-      self.V = self.V.cuda()
+      #self.Q = self.Q.cuda()
+      #self.K = self.K.cuda()
+      #self.V = self.V.cuda()
+      self.q = self.q.cuda()
+      self.k = self.k.cuda()
+      self.v = self.v.cuda()
 
     self.w_proj = nn.Linear(n_heads * d_v, d_model, bias=False)
     init_param(self.w_proj.weight, init_type="uniform", init_range=hparams.init_range)
@@ -343,14 +425,20 @@ class MultiHeadAttn(nn.Module):
     d_k = self.hparams.d_k
     d_v = self.hparams.d_v
     batch_size = q.size(0)
+    # batch_size, len, d_q * n_head
+    head_q, head_k, head_v = self.q(q), self.k(k), self.v(v)
+    # batch_size, len, dim, n_head
+    head_q = head_q.view(batch_size, q.size(1), -1, n_heads)
+    head_k = head_k.view(batch_size, k.size(1), -1, n_heads)
+    head_v = head_v.view(batch_size, v.size(1), -1, n_heads)
+    outputs = self.attention(head_q, head_k, head_v, attn_mask=attn_mask)
+    #heads = []
+    #for Q, K, V in zip(self.Q, self.K, self.V):
+    #  head_q, head_k, head_v = Q(q), K(k), V(v)
+    #  head = self.attention(head_q, head_k, head_v, attn_mask=attn_mask)
+    #  heads.append(head)
 
-    heads = []
-    for Q, K, V in zip(self.Q, self.K, self.V):
-      head_q, head_k, head_v = Q(q), K(k), V(v)
-      head = self.attention(head_q, head_k, head_v, attn_mask=attn_mask)
-      heads.append(head)
-
-    outputs = torch.cat(heads, dim=-1).contiguous().view(batch_size, -1, n_heads * d_v)
+    #outputs = torch.cat(heads, dim=-1).contiguous().view(batch_size, -1, n_heads * d_v)
     outputs = self.w_proj(outputs)
     outputs = self.layer_norm(outputs + residual)
 
@@ -420,7 +508,9 @@ class DecoderLayer(nn.Module):
       self.x_attn = MultiHeadAttn(hparams)
     else:
       self.y_attn = RelativeMultiHeadAttn(hparams)
+      #self.y_attn = MultiHeadAttn(hparams)
       self.x_attn = RelativeMultiHeadAttn(hparams)
+      #self.x_attn = MultiHeadAttn(hparams)
     self.pos_ffn = PositionwiseFF(hparams)
 
   def forward(self, dec_input, enc_output, y_attn_mask=None, x_attn_mask=None, n_corrupts=0):
@@ -444,6 +534,5 @@ class DecoderLayer(nn.Module):
       #print(output)
       output = torch.sum(output, dim=1).div_(n_corrupts).view(batch_size, -1, self.hparams.d_model)
       #print(output)
-    #exit(0)
     return output
 
