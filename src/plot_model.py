@@ -40,7 +40,7 @@ model.hparams.batcher = "sent"
 model.hparams.batch_size = len(src1_w) 
 model.hparams.cuda = args.cuda
 
-data = DataUtil(model.hparams)
+data = DataUtil(model.hparams, shuffle=False)
 
 out = args.out_file.split(",")
 out1 = open(out[0], "wb")
@@ -53,15 +53,21 @@ while True:
 	y_train, y_mask, y_count, y_len, y_pos_emb_idxs, \
 	batch_size, x_train_char_sparse, y_train_char_sparse, eop, file_idx = data.next_train()
   if args.options == 'char-no-spe':
-    model.sep_char_proj = False
+    model.hparams.sep_char_proj = False
+    print(x_train[44])
+    print(x_train_char_sparse[44])
     with torch.no_grad():
       char_emb = model.encoder.char_emb(
-              x_train_char_sparse, file_idx=file_idx)
+              x_train_char_sparse)
   elif args.options == 'char':
     with torch.no_grad():
       char_emb = model.encoder.char_emb(
               x_train_char_sparse, file_idx=file_idx)
-
+  elif args.options == 'final':
+    with torch.no_grad():
+      char_emb = model.encoder.char_emb(
+              x_train_char_sparse, file_idx=file_idx)
+      char_emb = model.encoder.word_emb(char_emb, x_train, file_idx=file_idx)
   char_emb = char_emb[:,1,:].squeeze(1).numpy()
   if step == 0:
     pkl.dump(char_emb, out1)

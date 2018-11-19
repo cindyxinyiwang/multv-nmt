@@ -95,7 +95,7 @@ if not hasattr(train_hparams, 'uni'):
   hparams.uni = False 
 
 model.hparams.cuda = hparams.cuda
-data = DataUtil(hparams=hparams, decode=True)
+data = DataUtil(hparams=hparams)
 filts = [model.hparams.pad_id, model.hparams.eos_id, model.hparams.bos_id]
 
 if not hasattr(model, 'data'):
