@@ -7,11 +7,12 @@ from torch.autograd import Variable
 
 class DataUtil(object):
 
-  def __init__(self, hparams, decode=True):
+  def __init__(self, hparams, shuffle=True):
     self.hparams = hparams
     self.src_i2w_list = []
     self.src_w2i_list = []
     
+    self.shuffle = shuffle
     i2w, w2i = self._build_vocab_list(self.hparams.src_vocab_list, max_vocab_size=self.hparams.src_vocab_size)
     for i in range(len(self.hparams.src_vocab_list)):
       self.src_i2w_list.append(i2w)
@@ -87,26 +88,15 @@ class DataUtil(object):
       self.file_idx = []
       for s_file,t_file in zip(self.hparams.train_src_file_list, self.hparams.train_trg_file_list):
         if s_file and t_file:
-          train_x, train_y, x_char_kv, y_char_kv, src_len = self._build_parallel(s_file, t_file, i)
+          train_x, train_y, x_char_kv, y_char_kv, src_len = self._build_parallel(s_file, t_file, i, shuffle=self.shuffle)
         else:
           train_x, train_y, x_char_kv, y_char_kv, src_len = [], [], [], [], []
-        if self.hparams.shuffle_train:
-          self.train_x.extend(train_x)
-          self.train_y.extend(train_y)
-        else:
-          self.train_x.append(train_x)
-          self.train_y.append(train_y)
+        self.train_x.append(train_x)
+        self.train_y.append(train_y)
         if not x_char_kv is None:
-          if self.hparams.shuffle_train:
-            self.train_x_char_kv.extend(x_char_kv)
-            self.train_y_char_kv.extend(y_char_kv)
-          else:
-            self.train_x_char_kv.append(x_char_kv)
-            self.train_y_char_kv.append(y_char_kv)
-        if self.hparams.shuffle_train:
-          self.file_idx.extend([i for _ in range(len(train_x))])
-        else:
-          self.file_idx.append([i for _ in range(len(train_x))])
+          self.train_x_char_kv.append(x_char_kv)
+          self.train_y_char_kv.append(y_char_kv)
+        self.file_idx.append([i for _ in range(len(train_x))])
 
         i += 1
         self.train_size.append(len(train_x))
@@ -273,9 +263,11 @@ class DataUtil(object):
     if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram or self.hparams.char_input is not None:
       x_train_char_kv = self.train_x_char_kv[data_idx][start_index:end_index]
       y_train_char_kv = self.train_y_char_kv[data_idx][start_index:end_index]
-      x_train, y_train, x_train_char_kv, y_train_char_kv, train_file_index = self.sort_by_xlen(x_train, y_train, x_train_char_kv, y_train_char_kv, train_file_index)
+      if self.shuffle:
+        x_train, y_train, x_train_char_kv, y_train_char_kv, train_file_index = self.sort_by_xlen(x_train, y_train, x_train_char_kv, y_train_char_kv, train_file_index)
     else:
-      x_train, y_train, train_file_index = self.sort_by_xlen(x_train, y_train,file_index=train_file_index)
+      if self.shuffle:
+        x_train, y_train, train_file_index = self.sort_by_xlen(x_train, y_train,file_index=train_file_index)
 
     self.train_index += 1
     batch_size = len(x_train)
@@ -508,7 +500,7 @@ class DataUtil(object):
     return count
 
 
-  def _build_parallel(self, src_file_name, trg_file_name, i, is_train=True):
+  def _build_parallel(self, src_file_name, trg_file_name, i, is_train=True, shuffle=True):
     print("loading parallel sentences from {} {} with vocab {}".format(src_file_name, trg_file_name, i))
     with open(src_file_name, 'r', encoding='utf-8') as f:
       src_lines = f.read().split('\n')
@@ -604,7 +596,7 @@ class DataUtil(object):
       line_count += 1
       if line_count % 10000 == 0:
         print("processed {} lines".format(line_count))
-    if is_train:
+    if is_train and shuffle:
       if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
         src_data, trg_data, src_char_kv_data, trg_char_kv_data = self.sort_by_xlen(src_data, trg_data, src_char_kv_data, trg_char_kv_data, descend=False)
       elif self.hparams.char_input is not None:
