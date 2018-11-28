@@ -12,6 +12,7 @@ import torch.nn as nn
 from torch.autograd import Variable
 
 from data_utils import DataUtil
+from mult_data_utils import MultDataUtil
 from hparams import *
 from model import *
 from utils import *
@@ -36,6 +37,7 @@ parser.add_argument("--src_no_char", action="store_true", help="load an existing
 parser.add_argument("--trg_no_char", action="store_true", help="load an existing model")
 parser.add_argument("--char_gate", action="store_true", help="load an existing model")
 parser.add_argument("--shuffle_train", action="store_true", help="load an existing model")
+parser.add_argument("--lang_shuffle", action="store_true", help="load an existing model")
 parser.add_argument("--ordered_char_dict", action="store_true", help="load an existing model")
 parser.add_argument("--out_c_list", type=str, default=None, help="list of output channels for char cnn emb")
 parser.add_argument("--k_list", type=str, default=None, help="list of kernel size for char cnn emb")
@@ -80,12 +82,19 @@ parser.add_argument("--pos_emb_size", type=int, default=None, help="size of trai
 parser.add_argument("--data_path", type=str, default=None, help="path to all data")
 parser.add_argument("--train_src_file_list", type=str, default=None, help="source train file")
 parser.add_argument("--train_trg_file_list", type=str, default=None, help="target train file")
+parser.add_argument("--dev_src_file_list", type=str, default=None, help="source valid file")
 parser.add_argument("--dev_src_file", type=str, default=None, help="source valid file")
+parser.add_argument("--dev_trg_file_list", type=str, default=None, help="target valid file")
 parser.add_argument("--dev_trg_file", type=str, default=None, help="target valid file")
+parser.add_argument("--dev_ref_file_list", type=str, default=None, help="target valid file for reference")
 parser.add_argument("--dev_trg_ref", type=str, default=None, help="target valid file for reference")
+parser.add_argument("--dev_file_idx_list", type=str, default=None, help="target valid file for reference")
 parser.add_argument("--src_vocab_list", type=str, default=None, help="source vocab file")
 parser.add_argument("--trg_vocab_list", type=str, default=None, help="target vocab file")
+parser.add_argument("--test_src_file_list", type=str, default=None, help="source test file")
 parser.add_argument("--test_src_file", type=str, default=None, help="source test file")
+parser.add_argument("--test_trg_file_list", type=str, default=None, help="target test file")
+parser.add_argument("--test_file_idx_list", type=str, default=None, help="target valid file for reference")
 parser.add_argument("--test_trg_file", type=str, default=None, help="target test file")
 parser.add_argument("--src_char_vocab_from", type=str, default=None, help="source char vocab file")
 parser.add_argument("--src_char_vocab_size", type=str, default=None, help="source char vocab file")
@@ -93,6 +102,11 @@ parser.add_argument("--trg_char_vocab_from", type=str, default=None, help="sourc
 parser.add_argument("--trg_char_vocab_size", type=str, default=None, help="source char vocab file")
 parser.add_argument("--src_vocab_size", type=int, default=None, help="src vocab size")
 parser.add_argument("--trg_vocab_size", type=int, default=None, help="trg vocab size")
+# multi data util options
+parser.add_argument("--lang_file", type=str, default=None, help="language code file")
+parser.add_argument("--src_vocab", type=str, default=None, help="source vocab file")
+parser.add_argument("--src_vocab_from", type=str, default=None, help="list of source vocab file")
+parser.add_argument("--trg_vocab", type=str, default=None, help="source vocab file")
 
 parser.add_argument("--batch_size", type=int, default=32, help="batch_size")
 parser.add_argument("--valid_batch_size", type=int, default=20, help="batch_size")
@@ -152,99 +166,90 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
   print("Eval at step {0}. valid_batch_size={1}".format(step, valid_batch_size))
 
   model.eval()
-  #data.reset_valid()
   valid_words = 0
   valid_loss = 0
   valid_acc = 0
   n_batches = 0
-
-  valid_total = valid_rule_count = valid_word_count = valid_eos_count = 0
-  valid_word_loss, valid_rule_loss, valid_eos_loss = 0, 0, 0
+  total_ppl, total_bleu = 0, 0
   valid_bleu = None
-  if eval_bleu:
-    valid_hyp_file = os.path.join(args.output_dir, "dev.trans_{0}".format(step))
-    out_file = open(valid_hyp_file, 'w', encoding='utf-8')
-  while True:
+  for x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, y_char, eop, eof, dev_file_index in data.next_dev(dev_batch_size=valid_batch_size):
     # clear GPU memory
     gc.collect()
 
     # next batch
-    x_valid, x_mask, x_count, x_len, x_pos_emb_idxs, y_valid, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, end_of_epoch, x_valid_char_sparse, y_valid_char_sparse = data.next_dev(dev_batch_size=valid_batch_size)
-    #print(x_valid)
-    #print(x_mask)
-    #print(y_valid)
-    #print(y_mask)
     # do this since you shift y_valid[:, 1:] and y_valid[:, :-1]
     y_count -= batch_size
     # word count
     valid_words += y_count
 
     logits = model.forward(
-      x_valid, x_mask, x_len, x_pos_emb_idxs,
-      y_valid[:,:-1], y_mask[:,:-1], y_len, y_pos_emb_idxs, x_valid_char_sparse, y_valid_char_sparse, file_idx=[0 for _ in range(batch_size)])
+      x, x_mask, x_len, x_pos_emb_idxs,
+      y[:,:-1], y_mask[:,:-1], y_len, y_pos_emb_idxs, x_char, y_char, file_idx=dev_file_index)
     logits = logits.view(-1, hparams.trg_vocab_size)
-    labels = y_valid[:,1:].contiguous().view(-1)
+    labels = y[:,1:].contiguous().view(-1)
     val_loss, val_acc = get_performance(crit, logits, labels, hparams)
-    n_batches += 1
+    n_batches += batch_size
     valid_loss += val_loss.item()
     valid_acc += val_acc.item()
-    # print("{0:<5d} / {1:<5d}".format(val_acc.data[0], y_count))
-    if end_of_epoch:
+    if eof:
+      val_ppl = np.exp(valid_loss / valid_words)
+      print("ppl for dev {}".format(dev_file_index[0]))
+      print("val_step={0:<6d}".format(step))
+      print(" loss={0:<6.2f}".format(valid_loss / valid_words))
+      print(" acc={0:<5.4f}".format(valid_acc / valid_words))
+      print(" val_ppl={0:<.2f}".format(val_ppl))
+      valid_words = 0
+      valid_loss = 0
+      valid_acc = 0
+      n_batches = 0
+      total_ppl += val_ppl
+    if eop:
       break
   # BLEU eval
   if eval_bleu:
-    #x_valid = data.dev_x
-    #x_dev_char, y_dev_char = data.get_trans_char(data.dev_x_char_kv, data.src_char_vsize), data.get_trans_char(data.dev_y_char_kv, data.trg_char_vsize)
-    #hyps = model.translate(
-    #      x_valid, beam_size=args.beam_size, max_len=args.max_trans_len, poly_norm_m=args.poly_norm_m, x_train_char=x_dev_char, y_train_char=y_dev_char)
-    hyps = []
-    while True:
-      gc.collect()
-      x_valid, x_mask, x_count, x_len, x_pos_emb_idxs, y_valid, y_mask, \
-              y_count, y_len, y_pos_emb_idxs, batch_size, end_of_epoch, \
-              x_valid_char_sparse, y_valid_char_sparse = data.next_dev(dev_batch_size=1)
+    valid_hyp_file_list = [os.path.join(args.output_dir, "dev{}.trans_{}".format(i, step)) for i in hparams.dev_file_idx_list]
+    out_file = open(valid_hyp_file_list[0], 'w', encoding='utf-8')
+    dev_idx = 0
+    for x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, y_char, eop, eof, dev_file_index in data.next_dev(dev_batch_size=1):
       if args.model_type == 'seq2seq':
         hs = model.translate(
-                x_valid, x_mask, beam_size=args.beam_size, max_len=args.max_trans_len, poly_norm_m=args.poly_norm_m, x_train_char=x_valid_char_sparse, y_train_char=y_valid_char_sparse)
+                x, x_mask, beam_size=args.beam_size, max_len=args.max_trans_len, poly_norm_m=args.poly_norm_m, x_train_char=x_char, y_train_char=y_char, file_idx=dev_file_index)
       elif args.model_type == 'transformer': 
         hs = model.translate(
-                x_valid, x_mask, x_pos_emb_idxs, x_char_sparse_batch=x_valid_char_sparse, beam_size=args.beam_size, max_len=args.max_trans_len, poly_norm_m=args.poly_norm_m)
-      hyps.extend(hs)
-      if end_of_epoch:
+                x, x_mask, x_pos_emb_idxs, x_char_sparse_batch=x_char, beam_size=args.beam_size, max_len=args.max_trans_len, poly_norm_m=args.poly_norm_m, file_idx=dev_file_index)
+      for h in hs:
+        h_best_words = map(lambda wi: data.trg_i2w[wi],
+                         filter(lambda wi: wi not in [hparams.bos_id, hparams.eos_id], h))
+        if hparams.merge_bpe:
+          line = ''.join(h_best_words)
+          line = line.replace('▁', ' ')
+        else:
+          line = ' '.join(h_best_words)
+        line = line.strip()
+        out_file.write(line + '\n')
+        out_file.flush()
+      if eof:
+        out_file.close()
+        ref_file = hparams.dev_ref_file_list[dev_idx]
+        bleu_str = subprocess.getoutput(
+          "./multi-bleu.perl {0} < {1}".format(ref_file, valid_hyp_file_list[dev_idx]))
+        print("bleu for dev {}".format(dev_idx))
+        print("{}".format(bleu_str))
+        bleu_str = bleu_str.split('\n')[-1].strip()
+        reg = re.compile("BLEU = ([^,]*).*")
+        try:
+          valid_bleu = float(reg.match(bleu_str).group(1))
+        except:
+          valid_bleu = 0.
+        print(" val_bleu={0:<.2f}".format(valid_bleu))
+        total_bleu += valid_bleu
+        dev_idx += 1
+        if not eop:
+          out_file = open(valid_hyp_file_list[dev_idx], "w", encoding="utf-8")
+      if eop:
         break
-    for h in hyps:
-      h_best_words = map(lambda wi: data.trg_i2w_list[0][wi],
-                       filter(lambda wi: wi not in [hparams.bos_id, hparams.eos_id], h))
-      if hparams.merge_bpe:
-        line = ''.join(h_best_words)
-        line = line.replace('▁', ' ')
-      else:
-        line = ' '.join(h_best_words)
-      line = line.strip()
-      out_file.write(line + '\n')
-      out_file.flush()
-  val_ppl = np.exp(valid_loss / valid_words)
-  log_string = "val_step={0:<6d}".format(step)
-  log_string += " loss={0:<6.2f}".format(valid_loss / valid_words)
-  log_string += " acc={0:<5.4f}".format(valid_acc / valid_words)
-  log_string += " val_ppl={0:<.2f}".format(val_ppl)
-  if eval_bleu:
-    out_file.close()
-    ref_file = args.dev_trg_ref
-    bleu_str = subprocess.getoutput(
-      "./multi-bleu.perl {0} < {1}".format(ref_file, valid_hyp_file))
-    log_string += "\n{}".format(bleu_str)
-    bleu_str = bleu_str.split('\n')[-1].strip()
-    reg = re.compile("BLEU = ([^,]*).*")
-    try:
-      valid_bleu = float(reg.match(bleu_str).group(1))
-    except:
-      valid_bleu = 0.
-    log_string += " val_bleu={0:<.2f}".format(valid_bleu)
-  print(log_string)
   model.train()
-  #exit(0)
-  return val_ppl, valid_bleu
+  return total_ppl, total_bleu
 
 def train():
   if args.load_model and (not args.reset_hparams):
@@ -261,6 +266,13 @@ def train():
       train_trg_file_list=args.train_trg_file_list,
       dev_src_file=args.dev_src_file,
       dev_trg_file=args.dev_trg_file,
+      dev_src_file_list=args.dev_src_file_list,
+      dev_trg_file_list=args.dev_trg_file_list,
+      dev_ref_file_list=args.dev_ref_file_list,
+      dev_file_idx_list=args.dev_file_idx_list,
+      lang_file=args.lang_file,
+      src_vocab=args.src_vocab,
+      trg_vocab=args.trg_vocab,
       src_vocab_list=args.src_vocab_list,
       trg_vocab_list=args.trg_vocab_list,
       src_vocab_size=args.src_vocab_size,
@@ -312,6 +324,7 @@ def train():
       trg_no_char=args.trg_no_char,
       char_gate=args.char_gate,
       shuffle_train=args.shuffle_train,
+      lang_shuffle=args.lang_shuffle,
       ordered_char_dict=args.ordered_char_dict,
       out_c_list=args.out_c_list,
       k_list=args.k_list,
@@ -339,7 +352,7 @@ def train():
   print("-" * 80)
   print("Creating model")
   if args.load_model:
-    data = DataUtil(hparams=hparams)
+    data = MultDataUtil(hparams=hparams)
     model_file_name = os.path.join(args.output_dir, "model.pt")
     print("Loading model from '{0}'".format(model_file_name))
     model = torch.load(model_file_name)
@@ -388,10 +401,10 @@ def train():
       #hparams.trg_char_vocab_size = reload_hparams.trg_char_vocab_size
       #print(reload_hparams.src_char_vocab_from)
       #print(reload_hparams.src_char_vocab_size)
-      data = DataUtil(hparams=hparams)
+      data = MultDataUtil(hparams=hparams)
       model.data = data
     else:
-      data = DataUtil(hparams=hparams)
+      data = MultDataUtil(hparams=hparams)
       if args.model_type == 'seq2seq':
         model = Seq2Seq(hparams=hparams, data=data)
       elif args.model_type == 'transformer':
@@ -437,11 +450,11 @@ def train():
   total_word_loss, total_rule_loss, total_eos_loss = 0, 0, 0
   model.train()
   #i = 0
+  epoch = 0
   dev_zero = args.dev_zero
   tr_loss, update_batch_size = None, 0
-  while True:
+  for (x_train, x_mask, x_count, x_len, x_pos_emb_idxs, y_train, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_train_char_sparse, y_train_char_sparse, eop, file_idx) in data.next_train():
     step += 1
-    x_train, x_mask, x_count, x_len, x_pos_emb_idxs, y_train, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_train_char_sparse, y_train_char_sparse, eop, file_idx = data.next_train()
     target_words += (y_count - batch_size)
     logits = model.forward(x_train, x_mask, x_len, x_pos_emb_idxs, y_train[:,:-1], y_mask[:,:-1], y_len, y_pos_emb_idxs, x_train_char_sparse, y_train_char_sparse, file_idx=file_idx)
     logits = logits.view(-1, hparams.trg_vocab_size)
@@ -514,7 +527,7 @@ def train():
     # clean up GPU memory
     if step % args.clean_mem_every == 0:
       gc.collect()
-    epoch = step // sum(data.n_train_batches)
+    if eop: epoch += 1
     if (step / args.update_batch) % args.log_every == 0:
       curr_time = time.time()
       since_start = (curr_time - start_time) / 60.0
