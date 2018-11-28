@@ -225,6 +225,7 @@ class RelativeMultiHeadAttn(nn.Module):
       #self.v = nn.Linear(1, d_q, bias=False)
       self.vb = nn.Linear(d_q, 1, bias=False)
       init_param(self.vb.weight, init_type="uniform", init_range=hparams.init_range)
+
     self.w_proj = nn.Linear(n_heads * d_v, d_model, bias=False)
     init_param(self.w_proj.weight, init_type="uniform", init_range=hparams.init_range)
     if self.hparams.cuda:
@@ -371,6 +372,7 @@ class RelativeMultiHeadAttn(nn.Module):
     #  heads.append(head)
 
     #outputs = torch.cat(heads, dim=-1).contiguous().view(batch_size, -1, n_heads * d_v)
+
     outputs = self.w_proj(outputs)
     outputs = self.layer_norm(outputs + residual)
 

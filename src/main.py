@@ -536,7 +536,6 @@ def train():
             print(p.grad)
             print(p.grad.size())
           exit(0)
-
       #grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad)
       optim.step()
       optim.zero_grad()
