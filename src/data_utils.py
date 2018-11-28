@@ -91,7 +91,10 @@ class DataUtil(object):
           train_x, train_y, x_char_kv, y_char_kv, src_len = self._build_parallel(s_file, t_file, i, shuffle=self.shuffle)
         else:
           train_x, train_y, x_char_kv, y_char_kv, src_len = [], [], [], [], []
-        self.train_x.append(train_x)
+        if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram or self.hparams.char_input is not None:
+          pass
+        else:
+          self.train_x.append(train_x)
         self.train_y.append(train_y)
         if not x_char_kv is None:
           self.train_x_char_kv.append(x_char_kv)
@@ -251,8 +254,10 @@ class DataUtil(object):
     else:
       print("unknown batcher")
       exit(1)
-
-    x_train = self.train_x[data_idx][start_index:end_index]
+    if self.train_x:
+      x_train = self.train_x[data_idx][start_index:end_index]
+    else:
+      x_train = None
     y_train = self.train_y[data_idx][start_index:end_index]
     train_file_index = self.file_idx[data_idx][start_index:end_index]
     if self.hparams.sample_rl and data_idx != 0:
@@ -392,6 +397,7 @@ class DataUtil(object):
     #return x_test, x_mask, x_count, x_len, x_pos_emb_idxs, y_test, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, eop, x_test_char, y_test_char
 
   def sort_by_xlen(self, x, y, x_char_kv=None, y_char_kv=None, file_index=None, descend=True):
+    if x is None: x = x_train_kv
     x = np.array(x)
     y = np.array(y)
     x_len = [len(i) for i in x]

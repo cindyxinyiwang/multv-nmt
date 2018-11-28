@@ -120,7 +120,7 @@ class QueryEmb(nn.Module):
       self.char_gate = nn.Linear(self.hparams.d_word_vec*2, 1)
       if self.hparams.cuda: self.char_gate = self.char_gate.cuda()
  
-  def forward(self, q, x_train=None, file_idx=None):
+  def forward(self, q, file_idx=None):
     """ 
     dot prodct attention: (q * k.T) * v
     Args:
@@ -131,10 +131,6 @@ class QueryEmb(nn.Module):
     Return:
       attn: [batch_size, d_v]
     """
-    if (not hasattr(self.hparams, 'query_base') or not self.hparams.query_base) and file_idx == 0:
-      emb = F.embedding(x_train, self.emb_matrix, padding_idx=self.hparams.pad_id)
-      emb = emb + q
-      return emb
     if self.hparams.semb == 'mlp':
       max_len, d_q = q[0].size()
       # (batch_size, max_len, d_word_vec, vocab_size)
@@ -305,7 +301,7 @@ class charEmbedder(nn.Module):
         if self.hparams.cuda: self.lstm_layer = self.lstm_layer.cuda()
     if self.hparams.sep_char_proj and not trg:
       self.sep_proj_list = []
-      for i in range(len(self.hparams.train_src_file_list)):
+      for i in range(self.hparams.lan_size):
         if self.hparams.d_char_vec is not None:
           self.sep_proj_list.append(nn.Linear(self.hparams.d_char_vec, self.hparams.d_word_vec, bias=False))
         else:
@@ -517,7 +513,7 @@ class sembEncoder(nn.Module):
       self.dropout = self.dropout.cuda()
       self.bridge = self.bridge.cuda()
 
-  def forward(self, x_train, x_len, x_train_char=None, file_idx=None):
+  def forward(self, x_train_char, x_len, file_idx=None):
     """Performs a forward pass.
     Args:
       x_train: Torch Tensor of size [batch_size, max_len]
@@ -527,10 +523,11 @@ class sembEncoder(nn.Module):
     Returns:
       enc_output: Tensor of size [batch_size, max_len, d_model].
     """
-    batch_size, max_len = x_train.size()
+    
+    batch_size, max_len = len(x_train_char), len(x_train_char[0])
 
     char_emb = self.char_emb(x_train_char, file_idx=file_idx)
-    word_emb = self.word_emb(char_emb, x_train, file_idx=file_idx)
+    word_emb = self.word_emb(char_emb, file_idx=file_idx)
     word_emb = self.dropout(word_emb).permute(1, 0, 2)
     #enc_output, (ht, ct) = self.layer(word_emb)
     packed_word_emb = pack_padded_sequence(word_emb, x_len)
@@ -767,31 +764,46 @@ class Seq2Seq(nn.Module):
 
   def forward(self, x_train, x_mask, x_len, x_pos_emb_idxs, y_train, y_mask, y_len, y_pos_emb_idxs, x_train_char_sparse=None, y_train_char_sparse=None, file_idx=None):
     # [batch_size, x_len, d_model * 2]
-    x_enc, dec_init = self.encoder(x_train, x_len, x_train_char_sparse, file_idx=file_idx)
+    if self.hparams.semb:
+      x_enc, dec_init = self.encoder(x_train_char_sparse, x_len, file_idx=file_idx)
+    else:
+      x_enc, dec_init = self.encoder(x_train, x_len, x_train_char_sparse, file_idx=file_idx)
     x_enc_k = self.enc_to_k(x_enc)
     #x_enc_k = x_enc
     # [batch_size, y_len-1, trg_vocab_size]
     logits = self.decoder(x_enc, x_enc_k, dec_init, x_mask, y_train, y_mask, y_train_char_sparse)
     return logits
 
-  def translate(self, x_train, x_mask, max_len=100, beam_size=5, poly_norm_m=0, x_train_char=None, y_train_char=None):
+  def translate(self, x_train, x_mask, max_len=100, beam_size=5, poly_norm_m=0, x_train_char=None, y_train_char=None, file_idx=None):
     hyps = []
-    batch_size = x_train.size(0)
+    if x_train_char:
+      batch_size = len(x_train_char)
+    else:
+      batch_size = x_train.size(0)
     for i in range(batch_size):
-      x = x_train[i,:].unsqueeze(0)
       mask = x_mask[i,:].unsqueeze(0)
       if x_train_char:
         # (1, max_len, char_dim)
+        x = None
         x_char = [x_train_char[i]]
       else:
+        x = x_train[i,:].unsqueeze(0)
         x_char = None
-      hyp = self.translate_sent(x, mask, max_len=max_len, beam_size=beam_size, poly_norm_m=poly_norm_m, x_train_char=x_char)[0]
+      if file_idx:
+        f = [file_idx[i]]
+      else:
+        f = None
+      hyp = self.translate_sent(x, mask, max_len=max_len, beam_size=beam_size, poly_norm_m=poly_norm_m, x_train_char=x_char, file_idx=f)[0]
       hyps.append(hyp.y[1:-1])
     return hyps
 
-  def translate_sent(self, x_train, x_mask, max_len=100, beam_size=5, poly_norm_m=0, x_train_char=None):
-    x_len = [x_train.size(1)]
-    x_enc, dec_init = self.encoder(x_train, x_len, x_train_char, file_idx=[0])
+  def translate_sent(self, x_train, x_mask, max_len=100, beam_size=5, poly_norm_m=0, x_train_char=None, file_idx=None):
+    if self.hparams.semb:
+      x_len = [len(x_train_char[0])]
+      x_enc, dec_init = self.encoder(x_train_char, x_len, file_idx=file_idx)
+    else:
+      x_len = [x_train.size(1)]
+      x_enc, dec_init = self.encoder(x_train, x_len, x_train_char, file_idx=file_idx)
     x_enc_k = self.enc_to_k(x_enc)
     length = 0
     completed_hyp = []
