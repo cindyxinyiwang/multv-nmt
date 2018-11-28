@@ -506,6 +506,24 @@ def train():
       tr_loss.div_(update_batch_size)
       tr_loss.backward()
       grad_norm = grad_clip(trainable_params, grad_bound=args.clip_grad)
+      if np.isnan(grad_norm):
+          print("WARNING: gradient is nan!, skipping batch")
+          print("x:", x_train.data)
+          print("y:", y_train.data)
+          print("logits:", logits.data)
+          #print("x_emb grad:", model.encoder.word_emb.weight.grad)
+          print("y_emb grad:", model.decoder.word_emb.weight.grad)
+          print("y_emb grad:", model.decoder.word_emb.weight.grad.size())
+          print("y layer norm grad:", model.decoder.layer_stack[0].y_attn.layer_norm.scale.grad.data)
+          print("y layer norm grad:", model.decoder.layer_stack[0].y_attn.layer_norm.offset.grad.data)
+          print("decoder layer 0")
+          for p in model.decoder.layer_stack[0].y_attn.parameters():
+            if not p.requires_grad: continue
+            print(p.data)
+            print(p.grad)
+            print(p.grad.size())
+          exit(0)
+
       #grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad)
       optim.step()
       optim.zero_grad()
