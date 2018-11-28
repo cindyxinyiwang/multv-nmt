@@ -22,6 +22,7 @@ class HParams(object):
       setattr(self, name, value)
     if hasattr(self, 'train_src_file_list') and type(self.train_src_file_list) == str:
       self.train_src_file_list = self.train_src_file_list.split(',')
+      self.lan_size = len(self.train_src_file_list)
     if hasattr(self, 'train_trg_file_list') and type(self.train_trg_file_list) == str:
       self.train_trg_file_list = self.train_trg_file_list.split(',')   
     if hasattr(self, 'src_vocab_list') and type(self.src_vocab_list) == str:
@@ -34,3 +35,12 @@ class HParams(object):
       self.k_list = [int(c) for c in self.k_list.split(',')]
     if hasattr(self, 'pretrained_src_emb_list') and type(self.pretrained_src_emb_list) == str:
       self.pretrained_src_emb_list = self.pretrained_src_emb_list.split(',')
+    if hasattr(self, 'dev_trg_file_list') and type(self.dev_trg_file_list) == str:
+      self.dev_trg_file_list = self.dev_trg_file_list.split(',')
+    if hasattr(self, 'dev_src_file_list') and type(self.dev_src_file_list) == str:
+      self.dev_src_file_list = self.dev_src_file_list.split(',')
+    if hasattr(self, 'dev_ref_file_list') and type(self.dev_ref_file_list) == str:
+      self.dev_ref_file_list = self.dev_ref_file_list.split(',')
+    if hasattr(self, 'dev_file_idx_list') and type(self.dev_file_idx_list) == str:
+      self.dev_file_idx_list = [int(i) for i in self.dev_file_idx_list.split(',')]
+

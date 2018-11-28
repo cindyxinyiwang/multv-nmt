@@ -36,7 +36,7 @@ class PositionalEmbedding(nn.Module):
       if self.hparams.cuda:
         self.freq = self.freq.cuda()
 
-  def forward(self, x=None, pos=None):
+  def forward(self, data=None, pos=None):
     """Compute positional embeddings.
 
     Args:
@@ -51,7 +51,7 @@ class PositionalEmbedding(nn.Module):
       batch_size, max_len = pos.size()
       pos = Variable(pos)
     else:
-      batch_size, max_len = x.size()
+      batch_size, max_len = data
       pos = Variable(torch.arange(0, max_len))
     if self.hparams.cuda:
       pos = pos.cuda()

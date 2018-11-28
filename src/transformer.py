@@ -61,14 +61,17 @@ class Encoder(nn.Module):
     Returns:
       enc_output: Tensor of size [batch_size, max_len, d_model].
     """
-    batch_size, max_len = x_train.size()
+    if x_train_char:
+      batch_size, max_len = len(x_train_char), len(x_train_char[0])
+    else:
+      batch_size, max_len = x_train.size()
 
     # [batch_size, max_len, d_word_vec]
     if not self.hparams.transformer_relative_pos:
-      pos_emb = self.pos_emb(x_train)
+      pos_emb = self.pos_emb((batch_size, max_len))
     if self.hparams.semb:
       char_emb = self.char_emb(x_train_char, file_idx=file_idx)
-      word_emb = self.word_emb(char_emb, x_train, file_idx=file_idx)
+      word_emb = self.word_emb(char_emb, file_idx=file_idx)
       word_emb = word_emb * self.emb_scale
     else:
       word_emb = self.word_emb(x_train) * self.emb_scale
@@ -133,7 +136,7 @@ class Decoder(nn.Module):
 
     # [batch_size, x_len, d_word_vec]
     if not self.hparams.transformer_relative_pos:
-      pos_emb = self.pos_emb(y_train)
+      pos_emb = self.pos_emb((batch_size, y_len))
     word_emb = self.word_emb(y_train) * self.emb_scale
     if not self.hparams.transformer_relative_pos:
       dec_input = word_emb + pos_emb
@@ -252,7 +255,7 @@ class Transformer(nn.Module):
     return params
   
   def translate(self, x_train_batch, x_mask_batch, x_pos_emb_indices_batch, x_char_sparse_batch,
-                beam_size, max_len, poly_norm_m=0):
+                beam_size, max_len, poly_norm_m=0, file_idx=None):
 
     class Hyp(object):
       def __init__(self, state=None, y=None, ctx_tm1=None, score=None):
@@ -260,19 +263,27 @@ class Transformer(nn.Module):
         self.y = y 
         self.ctx_tm1 = ctx_tm1
         self.score = score
+    if x_char_sparse_batch:
+      batch_size = len(x_char_sparse_batch)
+    else:
+      batch_size = x_train_batch.size(0)
 
-    batch_size = x_train_batch.size(0)
     all_hyp, all_scores = [], []
     for i in range(batch_size): 
-      x_train = x_train_batch[i, :].unsqueeze(0)
-      x_mask = x_mask_batch[i, :].unsqueeze(0)
-      x_pos_emb_indices = x_pos_emb_indices_batch[i, :].unsqueeze(0)
-      if x_char_sparse_batch is not None:
+      if x_char_sparse_batch:
         x_char_sparse = [x_char_sparse_batch[i]]
+        x_train = None 
       else:
         x_char_sparse = None
+        x_train = x_train_batch[i, :].unsqueeze(0)
+      if file_idx:
+        f = [file_idx[i]]
+      else:
+        f = None
+      x_mask = x_mask_batch[i, :].unsqueeze(0)
+      x_pos_emb_indices = x_pos_emb_indices_batch[i, :].unsqueeze(0)
       # translate one sentence
-      enc_output = self.encoder(x_train, x_mask, x_pos_emb_indices, x_char_sparse, file_idx=[0])
+      enc_output = self.encoder(x_train, x_mask, x_pos_emb_indices, x_char_sparse, file_idx=f)
       completed_hyp = []
       completed_hyp_scores = []
       active_hyp = [Hyp(y=[self.hparams.bos_id], score=0.)]
