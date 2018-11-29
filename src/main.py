@@ -31,6 +31,7 @@ parser.add_argument("--semb_vsize", type=int, default=None, help="how many steps
 parser.add_argument("--lan_code_rl", action="store_true", help="whether to set all unk words of rl to a reserved id")
 parser.add_argument("--sample_rl", action="store_true", help="whether to set all unk words of rl to a reserved id")
 parser.add_argument("--sep_char_proj", action="store_true", help="whether to have separate matrix for projecting char embedding")
+parser.add_argument("--sep_relative_loc", action="store_true", help="whether to have separate transformer relative loc")
 parser.add_argument("--residue", action="store_true", help="whether to set all unk words of rl to a reserved id")
 parser.add_argument("--layer_norm", action="store_true", help="whether to set all unk words of rl to a reserved id")
 parser.add_argument("--src_no_char", action="store_true", help="load an existing model")
@@ -157,6 +158,8 @@ parser.add_argument("--relative_pos_c", action="store_true", help="whether to us
 parser.add_argument("--relative_pos_d", action="store_true", help="whether to use relative positional encoding of transformer")
 parser.add_argument("--update_batch", type=int, default="1", help="for how many batches to call backward and optimizer update")
 parser.add_argument("--layernorm_eps", type=float, default=1e-9, help="layernorm eps")
+
+parser.add_argument("--sample_sep", type=float, default=0, help="probability of sample a swap for seprate position encoding")
 args = parser.parse_args()
 
 if args.bpe_ngram: args.n = None
@@ -317,6 +320,7 @@ def train():
       lan_code_rl=args.lan_code_rl,
       sample_rl=args.sample_rl,
       sep_char_proj=args.sep_char_proj,
+      sep_relative_loc=args.sep_relative_loc,
       query_base=args.query_base,
       residue=args.residue,
       layer_norm=args.layer_norm,
@@ -347,6 +351,7 @@ def train():
       transformer_relative_pos=args.transformer_relative_pos,
       relative_pos_c=args.relative_pos_c,
       relative_pos_d=args.relative_pos_d,
+      sample_sep=args.sample_sep,
     )
   # build or load model
   print("-" * 80)

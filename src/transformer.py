@@ -85,7 +85,7 @@ class Encoder(nn.Module):
     attn_mask = x_mask.unsqueeze(1).expand(-1, max_len, -1).contiguous()
     enc_output = self.dropout(enc_input)
     for enc_layer in self.layer_stack:
-      enc_output = enc_layer(enc_output, attn_mask=attn_mask)
+      enc_output = enc_layer(enc_output, attn_mask=attn_mask, file_idx=file_idx)
 
     return enc_output
 
@@ -114,7 +114,7 @@ class Decoder(nn.Module):
       self.layer_stack = self.layer_stack.cuda()
       self.dropout = self.dropout.cuda()
 
-  def forward(self, x_states, x_mask, y_train, y_mask, y_pos_emb_indices):
+  def forward(self, x_states, x_mask, y_train, y_mask, y_pos_emb_indices, file_idx=None):
     """Performs a forward pass.
 
     Args:
@@ -154,7 +154,7 @@ class Decoder(nn.Module):
     dec_output = self.dropout(dec_input)
     for dec_layer in self.layer_stack:
       dec_output = dec_layer(dec_output, x_states,
-                             y_attn_mask=y_attn_mask, x_attn_mask=x_attn_mask)
+                             y_attn_mask=y_attn_mask, x_attn_mask=x_attn_mask, file_idx=file_idx)
     return dec_output
 
   def forward_corrupt(self, x_states, x_mask, y_train, y_mask, y_pos_emb_indices, n_corrupts):
@@ -239,7 +239,7 @@ class Transformer(nn.Module):
 
     enc_output = self.encoder(x_train, x_mask, x_pos_emb_indices, x_train_char_sparse, file_idx)
     dec_output = self.decoder(
-      enc_output, x_mask, y_train, y_mask, y_pos_emb_indices)
+      enc_output, x_mask, y_train, y_mask, y_pos_emb_indices, file_idx)
     dec_output = self.dropout(dec_output)
     logits = self.w_logit(dec_output)
     if label_smoothing and (self.hparams.label_smoothing is not None):
@@ -302,7 +302,7 @@ class Transformer(nn.Module):
             y_partial_pos = y_partial_pos.cuda()
             y_mask = y_mask.cuda()
           dec_output = self.decoder(
-            enc_output, x_mask, y_partial, y_mask, y_partial_pos)
+            enc_output, x_mask, y_partial, y_mask, y_partial_pos, file_idx=f)
           dec_output = dec_output[:, -1, :]
           logits = self.w_logit(dec_output)
           probs = torch.nn.functional.log_softmax(logits, dim=1)

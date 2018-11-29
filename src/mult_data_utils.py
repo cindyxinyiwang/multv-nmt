@@ -15,6 +15,8 @@ class MultDataUtil(object):
     self.src_w2i_list = []
     
     self.shuffle = shuffle
+    if not hasattr(hparams, "sample_sep"):
+      hparams.sample_sep = 0
 
     if self.hparams.src_vocab:
       self.src_i2w, self.src_w2i = self._build_vocab(self.hparams.src_vocab, max_vocab_size=self.hparams.src_vocab_size)
@@ -132,7 +134,17 @@ class MultDataUtil(object):
           if x_char_kv:
             x_char = x_char_kv[start_index:end_index]
           y = y_train[start_index:end_index]
-          train_file_index = [data_idx for i in range(end_index - start_index)] 
+          if self.hparams.sample_sep > 0:
+            replace = np.random.binomial(1, p=self.hparams.sample_sep)
+          else:
+            replace = 0
+          if replace:
+            if data_idx == 0:
+              train_file_index = [1 for i in range(end_index - start_index)]
+            else:
+              train_file_index = [0 for i in range(end_index - start_index)]
+          else:
+            train_file_index = [data_idx for i in range(end_index - start_index)] 
           if self.shuffle:
             x, y, x_char, train_file_index = self.sort_by_xlen([x, y, x_char, train_file_index])
 
@@ -151,7 +163,7 @@ class MultDataUtil(object):
     first_dev = True
     while True:
       for data_idx in range(len(self.hparams.dev_src_file_list)):
-        x_dev, y_dev, x_char_kv, x_dev_len = self._build_parallel(self.hparams.dev_src_file_list[data_idx], self.hparams.dev_trg_file_list[data_idx], outprint=first_dev)
+        x_dev, y_dev, x_char_kv, x_dev_len = self._build_parallel(self.hparams.dev_src_file_list[data_idx], self.hparams.dev_trg_file_list[data_idx], is_train=False, outprint=first_dev)
         first_dev = False
         start_index, end_index = 0, 0
         while end_index < len(x_dev_len):
@@ -185,7 +197,7 @@ class MultDataUtil(object):
   def next_test(self, test_batch_size=1):
     while True:
       for data_idx in range(len(self.hparams.test_src_file_list)):
-        x_test, y_test, x_char_kv, x_test_len = self._build_parallel(self.hparams.test_src_file_list[data_idx], self.hparams.test_trg_file_list[data_idx], outprint=True)
+        x_test, y_test, x_char_kv, x_test_len = self._build_parallel(self.hparams.test_src_file_list[data_idx], self.hparams.test_trg_file_list[data_idx], is_train=False, outprint=True)
         start_index, end_index = 0, 0
         while end_index < len(x_test_len):
           end_index = min(start_index + test_batch_size, len(x_test_len))
