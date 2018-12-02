@@ -13,6 +13,7 @@ import time
 import numpy as np
 
 from data_utils import DataUtil
+from mult_data_utils import MultDataUtil
 from hparams import *
 from utils import *
 from model import *
@@ -63,8 +64,8 @@ hparams = TranslationHparams()
 for k, v in train_hparams.__dict__.items():
   setattr(hparams, k, v)
 
-out_file_list = [os.path.join(args.model_dir, i), for i in args.out_file_list.split(",")]
-print("writing translation to " + out_file_list)
+out_file_list = [os.path.join(args.model_dir, i) for i in args.out_file_list.split(",")]
+print("writing translation to " + str(out_file_list))
 
 #hparams.data_path=args.data_path
 #hparams.src_vocab_list=args.src_vocab_list
@@ -102,7 +103,7 @@ if not hasattr(train_hparams, 'uni'):
   hparams.uni = False 
 
 model.hparams.cuda = hparams.cuda
-data = DataUtil(hparams=hparams)
+data = MultDataUtil(hparams=hparams)
 filts = [model.hparams.pad_id, model.hparams.eos_id, model.hparams.bos_id]
 
 if not hasattr(model, 'data'):
@@ -122,16 +123,10 @@ if args.debug:
 end_of_epoch = False
 num_sentences = 0
 
-x_test = data.test_x
-if args.debug:
-  y_test = data.test_y
-else:
-  y_test = None
-#print(x_test)
 with torch.no_grad():
   out_file = open(hparams.out_file_list[0], 'w', encoding='utf-8')
   test_idx = 0
-  for x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, y_char, eop, eof, test_file_index in data.next_test(test_batch_size=1):
+  for x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, y_char, eop, eof, test_file_idx in data.next_test(test_batch_size=1):
     gc.collect()
     if hparams.model_type == 'seq2seq':
       hs = model.translate(

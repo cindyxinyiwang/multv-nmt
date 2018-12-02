@@ -64,7 +64,9 @@ class MultDataUtil(object):
     if not self.hparams.decode:
       self.start_indices = [[] for i in range(len(self.train_src_file_list))]
       self.end_indices = [[] for i in range(len(self.train_src_file_list))]
- 
+      if self.hparams.balance_idx >= 0:
+        print("load balance data {}...".format(self.hparams.balance_idx))
+        self.bal_x_train, self.bal_y_train, self.bal_x_char_kv, self.bal_x_len = self._build_parallel(self.train_src_file_list[self.hparams.balance_idx], self.train_trg_file_list[self.hparams.balance_idx], outprint=True)
  
   def get_char_emb(self, word_idx, is_trg=True):
     if is_trg:
@@ -90,6 +92,7 @@ class MultDataUtil(object):
     return ret
 
   def next_train(self):
+    step = 0
     while True:
       if self.hparams.lang_shuffle:
         self.train_data_queue = np.random.permutation(len(self.train_src_file_list))
@@ -126,39 +129,78 @@ class MultDataUtil(object):
             exit(1)
           self.start_indices[data_idx] = start_indices
           self.end_indices[data_idx] = end_indices
-        for batch_idx in np.random.permutation(len(self.start_indices[data_idx])):
-          start_index, end_index = self.start_indices[data_idx][batch_idx], self.end_indices[data_idx][batch_idx]
-          x, y, x_char = [], [], [] 
-          if x_train:
-            x = x_train[start_index:end_index]
-          if x_char_kv:
-            x_char = x_char_kv[start_index:end_index]
-          y = y_train[start_index:end_index]
-          if self.hparams.sample_sep > 0:
-            replace = np.random.binomial(1, p=self.hparams.sample_sep)
-          else:
-            replace = 0
-          if replace:
-            if data_idx == 0:
-              train_file_index = [1 for i in range(end_index - start_index)]
-            else:
-              train_file_index = [0 for i in range(end_index - start_index)]
-          else:
-            train_file_index = [data_idx for i in range(end_index - start_index)] 
-          if self.shuffle:
-            x, y, x_char, train_file_index = self.sort_by_xlen([x, y, x_char, train_file_index])
+        for step_b, batch_idx in enumerate(np.random.permutation(len(self.start_indices[data_idx]))):
+          if step > self.hparams.sep_step and self.hparams.balance_idx >= 0:
+            if data_idx != self.hparams.balance_idx and step_b % self.hparams.balance_ratio * len(self.start_indices[self.hparams.balance_idx]) == 0:
+              for bal_batch_idx in np.random.permutation(len(self.start_indices[self.hparams.balance_idx])):
+                yield self.yield_data(self.hparams.balance_idx, bal_batch_idx, self.bal_x_train, self.bal_x_char_kv, self.bal_y_train)
+          step += 1
+          yield self.yield_data(data_idx, batch_idx, x_train, x_char_kv, y_train)
+          #start_index, end_index = self.start_indices[data_idx][batch_idx], self.end_indices[data_idx][batch_idx]
+          #x, y, x_char = [], [], [] 
+          #if x_train:
+          #  x = x_train[start_index:end_index]
+          #if x_char_kv:
+          #  x_char = x_char_kv[start_index:end_index]
+          #y = y_train[start_index:end_index]
+          #if self.hparams.sample_sep > 0:
+          #  replace = np.random.binomial(1, p=self.hparams.sample_sep)
+          #else:
+          #  replace = 0
+          #if replace:
+          #  if data_idx == 0:
+          #    train_file_index = [1 for i in range(end_index - start_index)]
+          #  else:
+          #    train_file_index = [0 for i in range(end_index - start_index)]
+          #else:
+          #  train_file_index = [data_idx for i in range(end_index - start_index)] 
+          #if self.shuffle:
+          #  x, y, x_char, train_file_index = self.sort_by_xlen([x, y, x_char, train_file_index])
 
-          # pad
-          x, x_mask, x_count, x_len, x_pos_emb_idxs, x_char = self._pad(x, self.hparams.pad_id, x_char, self.hparams.src_char_vsize)
-          y, y_mask, y_count, y_len, y_pos_emb_idxs, y_char = self._pad(y, self.hparams.pad_id)
-          batch_size = end_index - start_index
-          if data_idx == self.train_data_queue[-1] and batch_idx == len(self.start_indices[data_idx])-1:
-            eop = True
-          else:
-            eop = False
+          ## pad
+          #x, x_mask, x_count, x_len, x_pos_emb_idxs, x_char = self._pad(x, self.hparams.pad_id, x_char, self.hparams.src_char_vsize)
+          #y, y_mask, y_count, y_len, y_pos_emb_idxs, y_char = self._pad(y, self.hparams.pad_id)
+          #batch_size = end_index - start_index
+          #if data_idx == self.train_data_queue[-1] and batch_idx == len(self.start_indices[data_idx])-1:
+          #  eop = True
+          #else:
+          #  eop = False
 
-          yield x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, None, eop, train_file_index
+          #yield x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, None, eop, train_file_index
  
+  def yield_data(self, data_idx, batch_idx, x_train, x_char_kv, y_train):
+    start_index, end_index = self.start_indices[data_idx][batch_idx], self.end_indices[data_idx][batch_idx]
+    x, y, x_char = [], [], [] 
+    if x_train:
+      x = x_train[start_index:end_index]
+    if x_char_kv:
+      x_char = x_char_kv[start_index:end_index]
+    y = y_train[start_index:end_index]
+    if self.hparams.sample_sep > 0:
+      replace = np.random.binomial(1, p=self.hparams.sample_sep)
+    else:
+      replace = 0
+    if replace:
+      if data_idx == 0:
+        train_file_index = [1 for i in range(end_index - start_index)]
+      else:
+        train_file_index = [0 for i in range(end_index - start_index)]
+    else:
+      train_file_index = [data_idx for i in range(end_index - start_index)] 
+    if self.shuffle:
+      x, y, x_char, train_file_index = self.sort_by_xlen([x, y, x_char, train_file_index])
+
+    # pad
+    x, x_mask, x_count, x_len, x_pos_emb_idxs, x_char = self._pad(x, self.hparams.pad_id, x_char, self.hparams.src_char_vsize)
+    y, y_mask, y_count, y_len, y_pos_emb_idxs, y_char = self._pad(y, self.hparams.pad_id)
+    batch_size = end_index - start_index
+    if data_idx == self.train_data_queue[-1] and batch_idx == len(self.start_indices[data_idx])-1:
+      eop = True
+    else:
+      eop = False
+
+    return x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, None, eop, train_file_index
+
   def next_dev(self, dev_batch_size=1):
     first_dev = True
     while True:
@@ -498,39 +540,39 @@ class MultDataUtil(object):
       vsize_list = [int(vocab_size_list) for i in range(len(vocab_file_list))]
     while len(vsize_list) < len(vfile_list):
       vsize_list.append(vsize_list[-1])
-    if self.hparams.ordered_char_dict:
-      i2w = [ '<unk>']
-      i2w_set = set(i2w) 
-      for vfile, size in zip(vfile_list, vsize_list):
-        cur_vsize = 0
-        with open(vfile, 'r', encoding='utf-8') as f:
-          for line in f:
-            w = line.strip()
-            if single_n and n and len(w) != n: continue
-            if not single_n and n and len(w) > n: continue 
-            if w == '<unk>' or w == '<pad>' or w == '<s>' or w == '<\s>': continue
-            cur_vsize += 1
-            if w not in i2w_set:
-              i2w.append(w)
-              i2w_set.add(w)
-              if size >= 0 and cur_vsize > size: break
-    else:
-      i2w_sets = []
-      for vfile, size in zip(vfile_list, vsize_list):
-        i2w = []
-        with open(vfile, 'r', encoding='utf-8') as f:
-          for line in f:
-            w = line.strip()
-            if single_n and n and len(w) != n: continue
-            if not single_n and n and len(w) > n: continue 
-            if w == '<unk>' or w == '<pad>' or w == '<s>' or w == '<\s>': continue
+    #if self.hparams.ordered_char_dict:
+    i2w = [ '<unk>']
+    i2w_set = set(i2w) 
+    for vfile, size in zip(vfile_list, vsize_list):
+      cur_vsize = 0
+      with open(vfile, 'r', encoding='utf-8') as f:
+        for line in f:
+          w = line.strip()
+          if single_n and n and len(w) != n: continue
+          if not single_n and n and len(w) > n: continue 
+          if w == '<unk>' or w == '<pad>' or w == '<s>' or w == '<\s>': continue
+          cur_vsize += 1
+          if w not in i2w_set:
             i2w.append(w)
-            if size > 0 and len(i2w) > size: break 
-        i2w_sets.append(set(i2w))
-      i2w_set = set([])
-      for s in i2w_sets:
-        i2w_set = i2w_set | s
-      i2w = ['<unk>'] + list(i2w_set)
+            i2w_set.add(w)
+            if size > 0 and cur_vsize > size: break
+    #else:
+    #  i2w_sets = []
+    #  for vfile, size in zip(vfile_list, vsize_list):
+    #    i2w = []
+    #    with open(vfile, 'r', encoding='utf-8') as f:
+    #      for line in f:
+    #        w = line.strip()
+    #        if single_n and n and len(w) != n: continue
+    #        if not single_n and n and len(w) > n: continue 
+    #        if w == '<unk>' or w == '<pad>' or w == '<s>' or w == '<\s>': continue
+    #        i2w.append(w)
+    #        if size > 0 and len(i2w) > size: break 
+    #    i2w_sets.append(set(i2w))
+    #  i2w_set = set([])
+    #  for s in i2w_sets:
+    #    i2w_set = i2w_set | s
+    #  i2w = ['<unk>'] + list(i2w_set)
 
     w2i = {}
     for i, w in enumerate(i2w):

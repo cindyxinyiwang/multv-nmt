@@ -160,6 +160,10 @@ parser.add_argument("--update_batch", type=int, default="1", help="for how many 
 parser.add_argument("--layernorm_eps", type=float, default=1e-9, help="layernorm eps")
 
 parser.add_argument("--sample_sep", type=float, default=0, help="probability of sample a swap for seprate position encoding")
+parser.add_argument("--sep_step", type=int, default=0, help="step to separate")
+parser.add_argument("--balance_idx", type=int, default=-1, help="step to separate")
+parser.add_argument("--balance_ratio", type=int, default=1, help="balance ratio")
+parser.add_argument("--sep_layer", type=int, default=100, help="max layer to sep loc")
 args = parser.parse_args()
 
 if args.bpe_ngram: args.n = None
@@ -167,7 +171,7 @@ if args.bpe_ngram: args.n = None
 def eval(model, data, crit, step, hparams, eval_bleu=False,
          valid_batch_size=20, tr_logits=None):
   print("Eval at step {0}. valid_batch_size={1}".format(step, valid_batch_size))
-
+  model.hparams.decode = True
   model.eval()
   valid_words = 0
   valid_loss = 0
@@ -187,7 +191,7 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
 
     logits = model.forward(
       x, x_mask, x_len, x_pos_emb_idxs,
-      y[:,:-1], y_mask[:,:-1], y_len, y_pos_emb_idxs, x_char, y_char, file_idx=dev_file_index)
+      y[:,:-1], y_mask[:,:-1], y_len, y_pos_emb_idxs, x_char, y_char, file_idx=dev_file_index, step=step)
     logits = logits.view(-1, hparams.trg_vocab_size)
     labels = y[:,1:].contiguous().view(-1)
     val_loss, val_acc = get_performance(crit, logits, labels, hparams)
@@ -251,6 +255,7 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
           out_file = open(valid_hyp_file_list[dev_idx], "w", encoding="utf-8")
       if eop:
         break
+  model.hparams.decode = False
   model.train()
   return total_ppl, total_bleu
 
@@ -352,6 +357,10 @@ def train():
       relative_pos_c=args.relative_pos_c,
       relative_pos_d=args.relative_pos_d,
       sample_sep=args.sample_sep,
+      sep_step=args.sep_step,
+      balance_idx=args.balance_idx,
+      balance_ratio=args.balance_ratio,
+      sep_layer=args.sep_layer,
     )
   # build or load model
   print("-" * 80)
@@ -461,7 +470,7 @@ def train():
   for (x_train, x_mask, x_count, x_len, x_pos_emb_idxs, y_train, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_train_char_sparse, y_train_char_sparse, eop, file_idx) in data.next_train():
     step += 1
     target_words += (y_count - batch_size)
-    logits = model.forward(x_train, x_mask, x_len, x_pos_emb_idxs, y_train[:,:-1], y_mask[:,:-1], y_len, y_pos_emb_idxs, x_train_char_sparse, y_train_char_sparse, file_idx=file_idx)
+    logits = model.forward(x_train, x_mask, x_len, x_pos_emb_idxs, y_train[:,:-1], y_mask[:,:-1], y_len, y_pos_emb_idxs, x_train_char_sparse, y_train_char_sparse, file_idx=file_idx, step=step)
     logits = logits.view(-1, hparams.trg_vocab_size)
     labels = y_train[:,1:].contiguous().view(-1)
 

@@ -162,10 +162,11 @@ class ScaledDotProdAttn(nn.Module):
 
 
 class RelativeMultiHeadAttn(nn.Module):
-  def __init__(self, hparams):
+  def __init__(self, hparams, set_sep=True):
     super(RelativeMultiHeadAttn, self).__init__()
 
     self.hparams = hparams
+    self.set_sep = set_sep
 
     #self.layer_norm = LayerNormalization(hparams.d_model, hparams)
     self.layer_norm = torch.nn.LayerNorm(hparams.d_model)
@@ -188,7 +189,7 @@ class RelativeMultiHeadAttn(nn.Module):
     init_param(self.v.weight, init_type="uniform", init_range=hparams.init_range)
 
     self.r = []
-    if self.hparams.sep_relative_loc:
+    if self.hparams.sep_relative_loc and self.set_sep:
       for i in range(self.hparams.lan_size):
         r = nn.Linear(d_model, n_heads * d_v, bias=False)
         init_param(r.weight, init_type="uniform", init_range=hparams.init_range)
@@ -220,7 +221,7 @@ class RelativeMultiHeadAttn(nn.Module):
       init_param(self.ub.weight, init_type="uniform", init_range=hparams.init_range)
     if self.hparams.relative_pos_d:
       self.vb = []
-      if self.hparams.sep_relative_loc:
+      if self.hparams.sep_relative_loc and self.set_sep:
         for i in range(self.hparams.lan_size):
           vb = nn.Linear(d_q, 1, bias=False)
           init_param(vb.weight, init_type="uniform", init_range=hparams.init_range)
@@ -240,7 +241,7 @@ class RelativeMultiHeadAttn(nn.Module):
       if self.hparams.relative_pos_d:
         self.vb = self.vb.cuda()
 
-  def forward(self, q, k, v, attn_mask=None, file_idx=None):
+  def forward(self, q, k, v, attn_mask=None, file_idx=None, step=None):
     """Performs the following computations:
 
          head[i] = Attention(q * w_q[i], k * w_k[i], v * w_v[i])
@@ -279,11 +280,22 @@ class RelativeMultiHeadAttn(nn.Module):
         pos_mask[i, len_q-i-1:len_q+len_k-i-1] = 1
     if self.hparams.cuda:
       pos_mask = pos_mask.cuda()
+    if (not self.hparams.decode) and self.hparams.sep_relative_loc and self.set_sep and self.hparams.sep_step and step == self.hparams.sep_step:
+      sep = True
+      print("separating position enc params...")
+      for i in range(1, len(self.r)):
+        self.r[i].weight.data = self.r[0].weight.data
+        if self.hparams.relative_pos_d:
+          self.vb[i].weight.data = self.vb[0].weight.data
+    elif self.hparams.decode and self.hparams.sep_relative_loc and self.set_sep:
+      sep = True
+    else:
+      sep = False
     # [batch_size, len_q, len_q+len_k, n_heads]
     pos_mask = pos_mask.byte().unsqueeze(0).unsqueeze(3).expand(batch_size, -1, -1, n_heads)
     # batch_size, len, d_q * n_head
     head_q, head_k, head_v = self.q(q), self.k(k), self.v(v)
-    if self.hparams.sep_relative_loc:
+    if sep:
       head_r =  self.r[file_idx[0]](r)
     else:
       head_r =  self.r[0](r)
@@ -311,7 +323,7 @@ class RelativeMultiHeadAttn(nn.Module):
       attn = attn + attn_c
     if self.hparams.relative_pos_d:
       # [batch_size, 1, len_k+len_q, n_heads]
-      if self.hparams.sep_relative_loc:
+      if sep:
         attn_pos_d = self.vb[file_idx[0]](head_r.transpose(2, 3)).permute(0, 3, 1, 2).expand(-1, len_q, -1, -1)
       else:
         attn_pos_d = self.vb[0](head_r.transpose(2, 3)).permute(0, 3, 1, 2).expand(-1, len_q, -1, -1)
@@ -459,17 +471,17 @@ class PositionwiseFF(nn.Module):
 class EncoderLayer(nn.Module):
   """Compose multi-head attention and positionwise feeding."""
 
-  def __init__(self, hparams):
+  def __init__(self, hparams, cur_layer):
     super(EncoderLayer, self).__init__()
 
     self.hparams = hparams
     if self.hparams.transformer_relative_pos:
-      self.attn = RelativeMultiHeadAttn(hparams)
+      self.attn = RelativeMultiHeadAttn(hparams, set_sep=(cur_layer <= self.hparams.sep_layer))
     else:
       self.attn = MultiHeadAttn(hparams)
     self.pos_ff = PositionwiseFF(hparams)
 
-  def forward(self, enc_input, attn_mask=None, file_idx=None):
+  def forward(self, enc_input, attn_mask=None, file_idx=None, step=None):
     """Normal forward pass.
 
     Args:
@@ -477,7 +489,7 @@ class EncoderLayer(nn.Module):
       attn_mask: [batch_size, x_len, x_len].
     """
 
-    enc_output = self.attn(enc_input, enc_input, enc_input, attn_mask=attn_mask, file_idx=file_idx)
+    enc_output = self.attn(enc_input, enc_input, enc_input, attn_mask=attn_mask, file_idx=file_idx, step=step)
     enc_output = self.pos_ff(enc_output)
     return enc_output
 
@@ -485,20 +497,20 @@ class EncoderLayer(nn.Module):
 class DecoderLayer(nn.Module):
   """Multi-head attention to both input_states and output_states."""
 
-  def __init__(self, hparams):
+  def __init__(self, hparams, cur_layer):
     super(DecoderLayer, self).__init__()
     self.hparams = hparams
     if not self.hparams.transformer_relative_pos:
       self.y_attn = MultiHeadAttn(hparams)
       self.x_attn = MultiHeadAttn(hparams)
     else:
-      self.y_attn = RelativeMultiHeadAttn(hparams)
+      self.y_attn = RelativeMultiHeadAttn(hparams, set_sep=False)
       #self.y_attn = MultiHeadAttn(hparams)
-      self.x_attn = RelativeMultiHeadAttn(hparams)
+      self.x_attn = RelativeMultiHeadAttn(hparams, set_sep=(cur_layer <= self.hparams.sep_layer))
       #self.x_attn = MultiHeadAttn(hparams)
     self.pos_ffn = PositionwiseFF(hparams)
 
-  def forward(self, dec_input, enc_output, y_attn_mask=None, x_attn_mask=None, n_corrupts=0, file_idx=None):
+  def forward(self, dec_input, enc_output, y_attn_mask=None, x_attn_mask=None, n_corrupts=0, file_idx=None, step=None):
     """Decoder.
 
     Args:
@@ -506,13 +518,13 @@ class DecoderLayer(nn.Module):
       x_attn_mask: decoder-encoder attention mask.
     """
 
-    output = self.y_attn(dec_input, dec_input, dec_input, attn_mask=y_attn_mask, file_idx=file_idx)
+    output = self.y_attn(dec_input, dec_input, dec_input, attn_mask=y_attn_mask, file_idx=file_idx, step=step)
     batch_size = dec_input.size(0)
     if n_corrupts > 0:
       #print(output)
       output = output.repeat(1, 1, n_corrupts).view(batch_size*n_corrupts, -1, self.hparams.d_model)
       #print(output)
-    output = self.x_attn(output, enc_output, enc_output, attn_mask=x_attn_mask, file_idx=file_idx)
+    output = self.x_attn(output, enc_output, enc_output, attn_mask=x_attn_mask, file_idx=file_idx, step=step)
     output = self.pos_ffn(output)
     if n_corrupts > 0:
       output = output.view(-1, n_corrupts, self.hparams.d_model)

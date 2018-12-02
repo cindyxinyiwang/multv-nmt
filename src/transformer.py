@@ -39,7 +39,7 @@ class Encoder(nn.Module):
     self.emb_scale = np.sqrt(self.hparams.d_model)
 
     self.layer_stack = nn.ModuleList(
-      [EncoderLayer(hparams) for _ in range(self.hparams.n_layers)])
+      [EncoderLayer(hparams, i) for i in range(self.hparams.n_layers)])
 
     self.dropout = nn.Dropout(self.hparams.dropout)
     if self.hparams.cuda:
@@ -49,7 +49,7 @@ class Encoder(nn.Module):
       self.layer_stack = self.layer_stack.cuda()
       self.dropout = self.dropout.cuda()
 
-  def forward(self, x_train, x_mask, x_pos_emb_indices, x_train_char=None, file_idx=None):
+  def forward(self, x_train, x_mask, x_pos_emb_indices, x_train_char=None, file_idx=None, step=None):
     """Performs a forward pass.
 
     Args:
@@ -85,7 +85,7 @@ class Encoder(nn.Module):
     attn_mask = x_mask.unsqueeze(1).expand(-1, max_len, -1).contiguous()
     enc_output = self.dropout(enc_input)
     for enc_layer in self.layer_stack:
-      enc_output = enc_layer(enc_output, attn_mask=attn_mask, file_idx=file_idx)
+      enc_output = enc_layer(enc_output, attn_mask=attn_mask, file_idx=file_idx, step=step)
 
     return enc_output
 
@@ -103,7 +103,7 @@ class Decoder(nn.Module):
     self.emb_scale = np.sqrt(self.hparams.d_model)
 
     self.layer_stack = nn.ModuleList(
-      [DecoderLayer(hparams) for _ in range(self.hparams.n_layers)])
+      [DecoderLayer(hparams, i) for i in range(self.hparams.n_layers)])
 
     self.dropout = nn.Dropout(self.hparams.dropout)
 
@@ -114,7 +114,7 @@ class Decoder(nn.Module):
       self.layer_stack = self.layer_stack.cuda()
       self.dropout = self.dropout.cuda()
 
-  def forward(self, x_states, x_mask, y_train, y_mask, y_pos_emb_indices, file_idx=None):
+  def forward(self, x_states, x_mask, y_train, y_mask, y_pos_emb_indices, file_idx=None, step=None):
     """Performs a forward pass.
 
     Args:
@@ -154,7 +154,7 @@ class Decoder(nn.Module):
     dec_output = self.dropout(dec_input)
     for dec_layer in self.layer_stack:
       dec_output = dec_layer(dec_output, x_states,
-                             y_attn_mask=y_attn_mask, x_attn_mask=x_attn_mask, file_idx=file_idx)
+                             y_attn_mask=y_attn_mask, x_attn_mask=x_attn_mask, file_idx=file_idx, step=step)
     return dec_output
 
   def forward_corrupt(self, x_states, x_mask, y_train, y_mask, y_pos_emb_indices, n_corrupts):
@@ -235,11 +235,11 @@ class Transformer(nn.Module):
 
   def forward(self, x_train, x_mask, x_len, x_pos_emb_indices,
               y_train, y_mask, y_len, y_pos_emb_indices, 
-              x_train_char_sparse=None, y_train_char_sparse=None, file_idx=None, label_smoothing=True):
+              x_train_char_sparse=None, y_train_char_sparse=None, file_idx=None, label_smoothing=True, step=None):
 
-    enc_output = self.encoder(x_train, x_mask, x_pos_emb_indices, x_train_char_sparse, file_idx)
+    enc_output = self.encoder(x_train, x_mask, x_pos_emb_indices, x_train_char_sparse, file_idx, step)
     dec_output = self.decoder(
-      enc_output, x_mask, y_train, y_mask, y_pos_emb_indices, file_idx)
+      enc_output, x_mask, y_train, y_mask, y_pos_emb_indices, file_idx, step)
     dec_output = self.dropout(dec_output)
     logits = self.w_logit(dec_output)
     if label_smoothing and (self.hparams.label_smoothing is not None):
