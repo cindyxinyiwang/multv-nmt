@@ -164,6 +164,7 @@ parser.add_argument("--sep_step", type=int, default=0, help="step to separate")
 parser.add_argument("--balance_idx", type=int, default=-1, help="step to separate")
 parser.add_argument("--balance_ratio", type=int, default=1, help="balance ratio")
 parser.add_argument("--sep_layer", type=int, default=100, help="max layer to sep loc")
+parser.add_argument("--lan_pos_emb", action="store_true", help="max layer to sep loc")
 args = parser.parse_args()
 
 if args.bpe_ngram: args.n = None
@@ -361,6 +362,7 @@ def train():
       balance_idx=args.balance_idx,
       balance_ratio=args.balance_ratio,
       sep_layer=args.sep_layer,
+      lan_pos_emb=args.lan_pos_emb,
     )
   # build or load model
   print("-" * 80)

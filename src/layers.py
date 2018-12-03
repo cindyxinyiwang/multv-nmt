@@ -189,15 +189,18 @@ class RelativeMultiHeadAttn(nn.Module):
     init_param(self.v.weight, init_type="uniform", init_range=hparams.init_range)
 
     self.r = []
-    if self.hparams.sep_relative_loc and self.set_sep:
-      for i in range(self.hparams.lan_size):
-        r = nn.Linear(d_model, n_heads * d_v, bias=False)
-        init_param(r.weight, init_type="uniform", init_range=hparams.init_range)
-        self.r.append(r)
-    else:
-      r = nn.Linear(d_model, n_heads * d_v, bias=False)
-      init_param(r.weight, init_type="uniform", init_range=hparams.init_range)
-      self.r.append(r)
+    #if self.hparams.sep_relative_loc and self.set_sep:
+    #  for i in range(self.hparams.lan_size):
+    #    r = nn.Linear(d_model, n_heads * d_v, bias=False)
+    #    init_param(r.weight, init_type="uniform", init_range=hparams.init_range)
+    #    self.r.append(r)
+    #else:
+    #  r = nn.Linear(d_model, n_heads * d_v, bias=False)
+    #  init_param(r.weight, init_type="uniform", init_range=hparams.init_range)
+    #  self.r.append(r)
+    r = nn.Linear(d_model, n_heads * d_v, bias=False)
+    init_param(r.weight, init_type="uniform", init_range=hparams.init_range)
+    self.r.append(r)
     self.r = nn.ModuleList(self.r)
 
     if self.hparams.cuda:
@@ -221,16 +224,22 @@ class RelativeMultiHeadAttn(nn.Module):
       init_param(self.ub.weight, init_type="uniform", init_range=hparams.init_range)
     if self.hparams.relative_pos_d:
       self.vb = []
-      if self.hparams.sep_relative_loc and self.set_sep:
-        for i in range(self.hparams.lan_size):
-          vb = nn.Linear(d_q, 1, bias=False)
-          init_param(vb.weight, init_type="uniform", init_range=hparams.init_range)
-          self.vb.append(vb)
-      else:
-        vb = nn.Linear(d_q, 1, bias=False)
-        init_param(vb.weight, init_type="uniform", init_range=hparams.init_range)
-        self.vb.append(vb)
+      #if self.hparams.sep_relative_loc and self.set_sep:
+      #  for i in range(self.hparams.lan_size):
+      #    vb = nn.Linear(d_q, 1, bias=False)
+      #    init_param(vb.weight, init_type="uniform", init_range=hparams.init_range)
+      #    self.vb.append(vb)
+      #else:
+      #  vb = nn.Linear(d_q, 1, bias=False)
+      #  init_param(vb.weight, init_type="uniform", init_range=hparams.init_range)
+      #  self.vb.append(vb)
+      vb = nn.Linear(d_q, 1, bias=False)
+      init_param(vb.weight, init_type="uniform", init_range=hparams.init_range)
+      self.vb.append(vb)
       self.vb = nn.ModuleList(self.vb)
+
+    if self.hparams.lan_pos_emb:
+      self.lan_pos_emb = nn.Embedding(self.hparams.lan_size, self.hparams.d_word_vec)
 
     self.w_proj = nn.Linear(n_heads * d_v, d_model, bias=False)
     init_param(self.w_proj.weight, init_type="uniform", init_range=hparams.init_range)
@@ -240,6 +249,8 @@ class RelativeMultiHeadAttn(nn.Module):
         self.ub = self.ub.cuda()
       if self.hparams.relative_pos_d:
         self.vb = self.vb.cuda()
+      if self.hparams.lan_pos_emb:
+        self.lan_pos_emb = self.lan_pos_emb.cuda()
 
   def forward(self, q, k, v, attn_mask=None, file_idx=None, step=None):
     """Performs the following computations:
@@ -283,14 +294,35 @@ class RelativeMultiHeadAttn(nn.Module):
     if (not self.hparams.decode) and self.hparams.sep_relative_loc and self.set_sep and self.hparams.sep_step and step == self.hparams.sep_step:
       sep = True
       print("separating position enc params...")
-      for i in range(1, len(self.r)):
-        self.r[i].weight.data = self.r[0].weight.data
+      #for i in range(1, len(self.r)):
+      #  self.r[i].weight.data = self.r[0].weight.data
+      #  if self.hparams.relative_pos_d:
+      #    self.vb[i].weight.data = self.vb[0].weight.data
+      for i in range(1, self.hparams.lan_size):
+        new_r = nn.Linear(d_model, n_heads * d_v, bias=False)
+        new_r.weight.data = self.r[0].weight.data
+        if self.hparams.cuda: new_r = new_r.cuda()
+        self.r.append(new_r)
+        if self.hparams.cuda: self.r = self.r.cuda()
         if self.hparams.relative_pos_d:
-          self.vb[i].weight.data = self.vb[0].weight.data
-    elif self.hparams.decode and self.hparams.sep_relative_loc and self.set_sep:
+          new_vb = nn.Linear(d_q, 1, bias=False)
+          new_vb.weight.data = self.vb[0].weight.data
+          if self.hparams.cuda: new_vb = new_vb.cuda()
+          self.vb.append(new_vb)
+          if self.hparams.cuda: self.vb = self.vb.cuda()
+    #elif self.hparams.decode and self.hparams.sep_relative_loc and self.set_sep:
+    #  sep = True
+    elif self.hparams.sep_relative_loc and self.set_sep and step > self.hparams.sep_step:
       sep = True
     else:
       sep = False
+    if self.hparams.lan_pos_emb:
+      fidx = Variable(torch.LongTensor([file_idx[0]]))
+      if self.hparams.cuda:
+        fidx = fidx.cuda()
+      # 1, 1, emb_size
+      lan_emb = self.lan_pos_emb(fidx).unsqueeze(1)
+      r = r + lan_emb
     # [batch_size, len_q, len_q+len_k, n_heads]
     pos_mask = pos_mask.byte().unsqueeze(0).unsqueeze(3).expand(batch_size, -1, -1, n_heads)
     # batch_size, len, d_q * n_head
