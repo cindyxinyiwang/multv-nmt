@@ -255,7 +255,7 @@ class Transformer(nn.Module):
     return params
   
   def translate(self, x_train_batch, x_mask_batch, x_pos_emb_indices_batch, x_char_sparse_batch,
-                beam_size, max_len, poly_norm_m=0, file_idx=None):
+                beam_size, max_len, poly_norm_m=0, file_idx=None, step=None):
 
     class Hyp(object):
       def __init__(self, state=None, y=None, ctx_tm1=None, score=None):
@@ -283,7 +283,7 @@ class Transformer(nn.Module):
       x_mask = x_mask_batch[i, :].unsqueeze(0)
       x_pos_emb_indices = x_pos_emb_indices_batch[i, :].unsqueeze(0)
       # translate one sentence
-      enc_output = self.encoder(x_train, x_mask, x_pos_emb_indices, x_char_sparse, file_idx=f)
+      enc_output = self.encoder(x_train, x_mask, x_pos_emb_indices, x_char_sparse, file_idx=f, step=step)
       completed_hyp = []
       completed_hyp_scores = []
       active_hyp = [Hyp(y=[self.hparams.bos_id], score=0.)]
@@ -302,7 +302,7 @@ class Transformer(nn.Module):
             y_partial_pos = y_partial_pos.cuda()
             y_mask = y_mask.cuda()
           dec_output = self.decoder(
-            enc_output, x_mask, y_partial, y_mask, y_partial_pos, file_idx=f)
+            enc_output, x_mask, y_partial, y_mask, y_partial_pos, file_idx=f, step=step)
           dec_output = dec_output[:, -1, :]
           logits = self.w_logit(dec_output)
           probs = torch.nn.functional.log_softmax(logits, dim=1)

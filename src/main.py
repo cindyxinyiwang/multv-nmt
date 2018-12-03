@@ -221,10 +221,10 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
     for x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, y_char, eop, eof, dev_file_index in data.next_dev(dev_batch_size=1):
       if args.model_type == 'seq2seq':
         hs = model.translate(
-                x, x_mask, beam_size=args.beam_size, max_len=args.max_trans_len, poly_norm_m=args.poly_norm_m, x_train_char=x_char, y_train_char=y_char, file_idx=dev_file_index)
+                x, x_mask, beam_size=args.beam_size, max_len=args.max_trans_len, poly_norm_m=args.poly_norm_m, x_train_char=x_char, y_train_char=y_char, file_idx=dev_file_index, step=step)
       elif args.model_type == 'transformer': 
         hs = model.translate(
-                x, x_mask, x_pos_emb_idxs, x_char_sparse_batch=x_char, beam_size=args.beam_size, max_len=args.max_trans_len, poly_norm_m=args.poly_norm_m, file_idx=dev_file_index)
+                x, x_mask, x_pos_emb_idxs, x_char_sparse_batch=x_char, beam_size=args.beam_size, max_len=args.max_trans_len, poly_norm_m=args.poly_norm_m, file_idx=dev_file_index, step=step)
       for h in hs:
         h_best_words = map(lambda wi: data.trg_i2w[wi],
                          filter(lambda wi: wi not in [hparams.bos_id, hparams.eos_id], h))
