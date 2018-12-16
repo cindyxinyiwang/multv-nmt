@@ -84,9 +84,8 @@ class Encoder(nn.Module):
     # [batch_size, 1, max_len] -> [batch_size, len_q, len_k]
     attn_mask = x_mask.unsqueeze(1).expand(-1, max_len, -1).contiguous()
     enc_output = self.dropout(enc_input)
-    for enc_layer in self.layer_stack:
-      enc_output = enc_layer(enc_output, attn_mask=attn_mask, file_idx=file_idx, step=step)
-
+    for i in range(self.hparams.n_layers):
+      enc_output = self.layer_stack[i](enc_output, attn_mask=attn_mask, file_idx=file_idx, step=step)
     return enc_output
 
 class Decoder(nn.Module):

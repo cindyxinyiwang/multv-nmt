@@ -163,8 +163,13 @@ parser.add_argument("--sample_sep", type=float, default=0, help="probability of 
 parser.add_argument("--sep_step", type=int, default=0, help="step to separate")
 parser.add_argument("--balance_idx", type=int, default=-1, help="step to separate")
 parser.add_argument("--balance_ratio", type=int, default=1, help="balance ratio")
-parser.add_argument("--sep_layer", type=int, default=100, help="max layer to sep loc")
+parser.add_argument("--sep_layer", type=str, default="", help="layers to sep loc")
 parser.add_argument("--lan_pos_emb", action="store_true", help="max layer to sep loc")
+parser.add_argument("--prob_rate_idx", type=int, default=-1, help="balance ratio")
+parser.add_argument("--sep_head_weight", action="store_true", help="max layer to sep loc")
+parser.add_argument("--max_loc_layer", type=int, default=1000, help="max layer to set location emb")
+parser.add_argument("--sp_reg", action="store_true", help="max layer to sep loc")
+parser.add_argument("--select_data", action="store_true", help="max layer to sep loc")
 args = parser.parse_args()
 
 if args.bpe_ngram: args.n = None
@@ -363,6 +368,10 @@ def train():
       balance_ratio=args.balance_ratio,
       sep_layer=args.sep_layer,
       lan_pos_emb=args.lan_pos_emb,
+      prob_rate_idx=args.prob_rate_idx,
+      sep_head_weight=args.sep_head_weight,
+      max_loc_layer=args.max_loc_layer,
+      select_data=args.select_data,
     )
   # build or load model
   print("-" * 80)
@@ -468,17 +477,28 @@ def train():
   #i = 0
   epoch = 0
   dev_zero = args.dev_zero
+  baseline_loss = None
   tr_loss, update_batch_size = None, 0
+  s0_trainable_params = []
   for (x_train, x_mask, x_count, x_len, x_pos_emb_idxs, y_train, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_train_char_sparse, y_train_char_sparse, eop, file_idx) in data.next_train():
     step += 1
     target_words += (y_count - batch_size)
     logits = model.forward(x_train, x_mask, x_len, x_pos_emb_idxs, y_train[:,:-1], y_mask[:,:-1], y_len, y_pos_emb_idxs, x_train_char_sparse, y_train_char_sparse, file_idx=file_idx, step=step)
     logits = logits.view(-1, hparams.trg_vocab_size)
     labels = y_train[:,1:].contiguous().view(-1)
-
+      
     cur_tr_loss, cur_tr_acc = get_performance(crit, logits, labels, hparams)
     total_loss += cur_tr_loss.item()
     total_corrects += cur_tr_acc.item()
+    if file_idx[0] == args.prob_rate_idx-1:
+      baseline_loss = cur_tr_loss.item() / (y_count - batch_size)
+    if file_idx[0] == args.prob_rate_idx: 
+      if step  % args.log_every == 0:
+        print("cur loss: {}".format((cur_tr_loss.item() / (y_count - batch_size))) )
+      weight = 0.5 * min(1, step / 30000)
+      cur_tr_loss = cur_tr_loss * weight
+      if step  % args.log_every == 0:
+        print("baseline: {}, weight: {}".format(baseline_loss, weight))
     if tr_loss is None:
       tr_loss = cur_tr_loss
     else:
@@ -532,6 +552,15 @@ def train():
         s = (step / args.update_batch) % args.lr_dec_steps
         lr = args.lr_min + 0.5*(args.lr_max-args.lr_min)*(1+np.cos(s*np.pi/args.lr_dec_steps))
         set_lr(optim, lr)
+      if args.sp_reg and s0_trainable_params:
+        total_norm = 0
+        assert len(s0_trainable_params) == len(trainable_params)
+        for p_s, p in zip(s0_trainable_params, trainable_params):
+          param_norm = (p - p_s).norm(2)
+          total_norm += param_norm ** 2
+        total_norm = total_norm ** 0.5
+        tr_loss = tr_loss + total_norm
+       
       tr_loss.div_(update_batch_size)
       tr_loss.backward()
       grad_norm = grad_clip(trainable_params, grad_bound=args.clip_grad)
@@ -608,8 +637,12 @@ def train():
           save = False
           cur_attempt += 1
       if save or args.always_save:
-      	save_checkpoint([step, best_val_ppl, best_val_bleu, cur_attempt, lr], 
-      		             model, optim, hparams, args.output_dir)
+        save_checkpoint([step, best_val_ppl, best_val_bleu, cur_attempt, lr], model, optim, hparams, args.output_dir)
+        if args.sp_reg:
+          s0_trainable_params = []
+          for p in model.parameters(): 
+            if p.requires_grad: 
+              s0_trainable_params.append(p.detach().clone())
       elif not args.lr_schedule and step >= hparams.n_warm_ups:
         lr = lr * args.lr_dec
         set_lr(optim, lr)

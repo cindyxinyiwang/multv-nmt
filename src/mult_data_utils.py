@@ -46,6 +46,12 @@ class MultDataUtil(object):
           self.train_trg_file_list.append(self.hparams.train_trg_file_list[0].replace("LAN", lan))
           if self.hparams.src_vocab_list:
             self.src_vocab_list.append(self.hparams.src_vocab_list[0].replace("LAN", lan))
+        if self.hparams.select_data:
+          for i in range(2,len(self.train_src_file_list)):
+            self.train_src_file_list[i] = self.train_src_file_list[i] + ".azesel"
+            self.train_trg_file_list[i] = self.train_trg_file_list[i] + ".azesel"
+            print(self.train_src_file_list)
+            print(self.train_trg_file_list)
       self.hparams.lan_size = len(self.train_src_file_list)
     if self.hparams.src_vocab_list:
       self.src_i2w, self.src_w2i = self._build_char_vocab_from(self.src_vocab_list, self.hparams.src_vocab_size)
@@ -100,6 +106,7 @@ class MultDataUtil(object):
         self.train_data_queue = [i for i in range(len(self.train_src_file_list))]
       for data_idx in self.train_data_queue:
         x_train, y_train, x_char_kv, x_len = self._build_parallel(self.train_src_file_list[data_idx], self.train_trg_file_list[data_idx], outprint=(len(self.start_indices[data_idx]) == 0))
+        #x_train, y_train, x_char_kv, x_len = self._build_parallel(self.train_src_file_list[data_idx], self.train_trg_file_list[data_idx], outprint=True)
         # set batcher indices once
         if not self.start_indices[data_idx]:
           start_indices, end_indices = [], []
@@ -132,10 +139,10 @@ class MultDataUtil(object):
         for step_b, batch_idx in enumerate(np.random.permutation(len(self.start_indices[data_idx]))):
           if step > self.hparams.sep_step and self.hparams.balance_idx >= 0:
             if data_idx != self.hparams.balance_idx and step_b % self.hparams.balance_ratio * len(self.start_indices[self.hparams.balance_idx]) == 0:
-              for bal_batch_idx in np.random.permutation(len(self.start_indices[self.hparams.balance_idx])):
-                yield self.yield_data(self.hparams.balance_idx, bal_batch_idx, self.bal_x_train, self.bal_x_char_kv, self.bal_y_train)
+              for s, bal_batch_idx in enumerate(np.random.permutation(len(self.start_indices[self.hparams.balance_idx]))):
+                yield self.yield_data(self.hparams.balance_idx, bal_batch_idx, self.bal_x_train, self.bal_x_char_kv, self.bal_y_train, s)
           step += 1
-          yield self.yield_data(data_idx, batch_idx, x_train, x_char_kv, y_train)
+          yield self.yield_data(data_idx, batch_idx, x_train, x_char_kv, y_train, step_b)
           #start_index, end_index = self.start_indices[data_idx][batch_idx], self.end_indices[data_idx][batch_idx]
           #x, y, x_char = [], [], [] 
           #if x_train:
@@ -168,7 +175,7 @@ class MultDataUtil(object):
 
           #yield x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, None, eop, train_file_index
  
-  def yield_data(self, data_idx, batch_idx, x_train, x_char_kv, y_train):
+  def yield_data(self, data_idx, batch_idx, x_train, x_char_kv, y_train, step):
     start_index, end_index = self.start_indices[data_idx][batch_idx], self.end_indices[data_idx][batch_idx]
     x, y, x_char = [], [], [] 
     if x_train:
@@ -194,7 +201,7 @@ class MultDataUtil(object):
     x, x_mask, x_count, x_len, x_pos_emb_idxs, x_char = self._pad(x, self.hparams.pad_id, x_char, self.hparams.src_char_vsize)
     y, y_mask, y_count, y_len, y_pos_emb_idxs, y_char = self._pad(y, self.hparams.pad_id)
     batch_size = end_index - start_index
-    if data_idx == self.train_data_queue[-1] and batch_idx == len(self.start_indices[data_idx])-1:
+    if data_idx == self.train_data_queue[-1] and step == len(self.start_indices[data_idx])-1:
       eop = True
     else:
       eop = False

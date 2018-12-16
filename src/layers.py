@@ -162,12 +162,13 @@ class ScaledDotProdAttn(nn.Module):
 
 
 class RelativeMultiHeadAttn(nn.Module):
-  def __init__(self, hparams, set_sep=True):
+  def __init__(self, hparams, enc=False, n_layer=-1):
     super(RelativeMultiHeadAttn, self).__init__()
 
     self.hparams = hparams
-    self.set_sep = set_sep
-
+    self.set_sep = (n_layer in self.hparams.sep_layer) and enc
+    self.enc = enc
+    self.n_layer = n_layer
     #self.layer_norm = LayerNormalization(hparams.d_model, hparams)
     self.layer_norm = torch.nn.LayerNorm(hparams.d_model)
     self.temp = np.power(hparams.d_model, 0.5)
@@ -188,58 +189,40 @@ class RelativeMultiHeadAttn(nn.Module):
     init_param(self.k.weight, init_type="uniform", init_range=hparams.init_range)
     init_param(self.v.weight, init_type="uniform", init_range=hparams.init_range)
 
-    self.r = []
-    #if self.hparams.sep_relative_loc and self.set_sep:
-    #  for i in range(self.hparams.lan_size):
-    #    r = nn.Linear(d_model, n_heads * d_v, bias=False)
-    #    init_param(r.weight, init_type="uniform", init_range=hparams.init_range)
-    #    self.r.append(r)
-    #else:
-    #  r = nn.Linear(d_model, n_heads * d_v, bias=False)
-    #  init_param(r.weight, init_type="uniform", init_range=hparams.init_range)
-    #  self.r.append(r)
-    r = nn.Linear(d_model, n_heads * d_v, bias=False)
-    init_param(r.weight, init_type="uniform", init_range=hparams.init_range)
-    self.r.append(r)
-    self.r = nn.ModuleList(self.r)
+    if self.hparams.sep_head_weight and self.enc:
+      self.head_w = []
+      for i in range(self.hparams.lan_size):
+        h_w = nn.Linear(d_model, n_heads, bias=False)
+        init_param(h_w.weight, init_type="uniform", init_range=hparams.init_range)
+        self.head_w.append(h_w)
+      self.head_w = nn.ModuleList(self.head_w)
+      if self.hparams.cuda: self.head_w = self.head_w.cuda()
+    
+    if self.enc and self.n_layer < self.hparams.max_loc_layer:
+      self.r = []
+
+      r = nn.Linear(d_model, n_heads * d_v, bias=False)
+      init_param(r.weight, init_type="uniform", init_range=hparams.init_range)
+      self.r.append(r)
+      self.r = nn.ModuleList(self.r)
 
     if self.hparams.cuda:
       self.q = self.q.cuda()
       self.k = self.k.cuda()
       self.v = self.v.cuda()
-      self.r = self.r.cuda()
+      if self.enc and self.n_layer < self.hparams.max_loc_layer:
+        self.r = self.r.cuda()
     if self.hparams.relative_pos_c:
-      #self.ub = []
-      #if self.hparams.sep_relative_loc:
-      #  for i in range(self.hparams.lan_size):
-      #    ub = nn.Linear(d_q, 1, bias=False)
-      #    init_param(ub.weight, init_type="uniform", init_range=hparams.init_range)
-      #    self.ub.append(ub)
-      #else:
-      #  ub = nn.Linear(d_q, 1, bias=False)
-      #  init_param(ub.weight, init_type="uniform", init_range=hparams.init_range)
-      #  self.ub.append(ub)
-      #self.ub = nn.ModuleList(self.ub)
-      self.ub = nn.Linear(d_q, 1, bias=False)
-      init_param(self.ub.weight, init_type="uniform", init_range=hparams.init_range)
-    if self.hparams.relative_pos_d:
+      ub = nn.Linear(d_q, 1, bias=False)
+      init_param(ub.weight, init_type="uniform", init_range=hparams.init_range)
+      self.ub = ub
+    if self.hparams.relative_pos_d and (self.enc and self.n_layer < self.hparams.max_loc_layer):
       self.vb = []
-      #if self.hparams.sep_relative_loc and self.set_sep:
-      #  for i in range(self.hparams.lan_size):
-      #    vb = nn.Linear(d_q, 1, bias=False)
-      #    init_param(vb.weight, init_type="uniform", init_range=hparams.init_range)
-      #    self.vb.append(vb)
-      #else:
-      #  vb = nn.Linear(d_q, 1, bias=False)
-      #  init_param(vb.weight, init_type="uniform", init_range=hparams.init_range)
-      #  self.vb.append(vb)
       vb = nn.Linear(d_q, 1, bias=False)
       init_param(vb.weight, init_type="uniform", init_range=hparams.init_range)
       self.vb.append(vb)
       self.vb = nn.ModuleList(self.vb)
-
-    if self.hparams.lan_pos_emb:
-      self.lan_pos_emb = nn.Embedding(self.hparams.lan_size, self.hparams.d_word_vec)
+      if self.hparams.cuda: self.vb = self.vb.cuda()
 
     self.w_proj = nn.Linear(n_heads * d_v, d_model, bias=False)
     init_param(self.w_proj.weight, init_type="uniform", init_range=hparams.init_range)
@@ -247,10 +230,6 @@ class RelativeMultiHeadAttn(nn.Module):
       self.w_proj = self.w_proj.cuda()
       if self.hparams.relative_pos_c:
         self.ub = self.ub.cuda()
-      if self.hparams.relative_pos_d:
-        self.vb = self.vb.cuda()
-      if self.hparams.lan_pos_emb:
-        self.lan_pos_emb = self.lan_pos_emb.cuda()
 
   def forward(self, q, k, v, attn_mask=None, file_idx=None, step=None):
     """Performs the following computations:
@@ -282,57 +261,45 @@ class RelativeMultiHeadAttn(nn.Module):
     batch_size, len_k, d_k = k.size()
     batch_size, len_v, d_v = v.size()
 
-    r = torch.arange(len_q-1, -len_k, -1.0).unsqueeze(0)
-    # [1, len_q + len_k, d_word_vec]
-    r = self.pos_emb(pos=r)
-    pos_mask = torch.zeros(len_q, len_q+len_k-1)
-    for i in range(len_q):
-        # [batch_size, 1, len_k]
-        pos_mask[i, len_q-i-1:len_q+len_k-i-1] = 1
-    if self.hparams.cuda:
-      pos_mask = pos_mask.cuda()
-    if (not self.hparams.decode) and self.hparams.sep_relative_loc and self.set_sep and self.hparams.sep_step and step == self.hparams.sep_step:
-      sep = True
-      print("separating position enc params...")
-      #for i in range(1, len(self.r)):
-      #  self.r[i].weight.data = self.r[0].weight.data
-      #  if self.hparams.relative_pos_d:
-      #    self.vb[i].weight.data = self.vb[0].weight.data
-      for i in range(1, self.hparams.lan_size):
-        new_r = nn.Linear(d_model, n_heads * d_v, bias=False)
-        new_r.weight.data = self.r[0].weight.data
-        if self.hparams.cuda: new_r = new_r.cuda()
-        self.r.append(new_r)
-        if self.hparams.cuda: self.r = self.r.cuda()
-        if self.hparams.relative_pos_d:
-          new_vb = nn.Linear(d_q, 1, bias=False)
-          new_vb.weight.data = self.vb[0].weight.data
-          if self.hparams.cuda: new_vb = new_vb.cuda()
-          self.vb.append(new_vb)
-          if self.hparams.cuda: self.vb = self.vb.cuda()
-    #elif self.hparams.decode and self.hparams.sep_relative_loc and self.set_sep:
-    #  sep = True
-    elif self.hparams.sep_relative_loc and self.set_sep and step > self.hparams.sep_step:
-      sep = True
-    else:
-      sep = False
-    if self.hparams.lan_pos_emb:
-      fidx = Variable(torch.LongTensor([file_idx[0]]))
+    #if  self.enc and self.n_layer < self.hparams.max_loc_layer:
+    if self.enc and self.n_layer < self.hparams.max_loc_layer:
+      r = torch.arange(len_q-1, -len_k, -1.0).unsqueeze(0)
+      # [1, len_q + len_k, d_word_vec]
+      r = self.pos_emb(pos=r)
+      pos_mask = torch.zeros(len_q, len_q+len_k-1)
+      for i in range(len_q):
+          # [batch_size, 1, len_k]
+          pos_mask[i, len_q-i-1:len_q+len_k-i-1] = 1
       if self.hparams.cuda:
-        fidx = fidx.cuda()
-      # 1, 1, emb_size
-      lan_emb = self.lan_pos_emb(fidx).unsqueeze(1)
-      r = r + lan_emb
-    # [batch_size, len_q, len_q+len_k, n_heads]
-    pos_mask = pos_mask.byte().unsqueeze(0).unsqueeze(3).expand(batch_size, -1, -1, n_heads)
+        pos_mask = pos_mask.cuda()
+      if (not self.hparams.decode) and self.hparams.sep_relative_loc and self.set_sep and self.hparams.sep_step and step == self.hparams.sep_step:
+        sep = True
+        print("separating position enc params...")
+        for i in range(1, self.hparams.lan_size):
+          new_r = nn.Linear(d_model, n_heads * d_v, bias=False)
+          new_r.weight.data = self.r[0].weight.data
+          if self.hparams.cuda: new_r = new_r.cuda()
+          self.r.append(new_r)
+          if self.hparams.cuda: self.r = self.r.cuda()
+          if self.hparams.relative_pos_d:
+            new_vb = nn.Linear(d_q, 1, bias=False)
+            new_vb.weight.data = self.vb[0].weight.data
+            if self.hparams.cuda: new_vb = new_vb.cuda()
+            self.vb.append(new_vb)
+      elif self.hparams.sep_relative_loc and self.set_sep and step > self.hparams.sep_step:
+        sep = True
+      else:
+        sep = False
+      # [batch_size, len_q, len_q+len_k, n_heads]
+      pos_mask = pos_mask.byte().unsqueeze(0).unsqueeze(3).expand(batch_size, -1, -1, n_heads)
+      if sep:
+        head_r =  self.r[file_idx[0]](r)
+      else:
+        head_r =  self.r[0](r)
+      # batch_size, lenq+lenk, d_q, n_head
+      head_r = head_r.view(1, r.size(1), -1, n_heads).expand(batch_size, -1, -1, -1)
     # batch_size, len, d_q * n_head
     head_q, head_k, head_v = self.q(q), self.k(k), self.v(v)
-    if sep:
-      head_r =  self.r[file_idx[0]](r)
-    else:
-      head_r =  self.r[0](r)
-    # batch_size, lenq+lenk, d_q, n_head
-    head_r = head_r.view(1, r.size(1), -1, n_heads).expand(batch_size, -1, -1, -1)
     # batch_size, len, dim, n_head
     head_q = head_q.view(batch_size, q.size(1), -1, n_heads)
     head_k = head_k.view(batch_size, k.size(1), -1, n_heads)
@@ -340,26 +307,22 @@ class RelativeMultiHeadAttn(nn.Module):
 
     # batch_size, len_q, len_k, n_heads
     attn_a = torch.einsum("bidn,bjdn->bijn", (head_q, head_k))
-    # [batch_size, len_q, len_q + len_k, n_heads]
-    attn_pos_b = torch.einsum("bidn,bjdn->bijn", (head_q, head_r))
-    #attn_pos_b = attn_pos_b[pos_mask].view(batch_size, len_q, len_k, n_heads)
-    attn_pos_b = attn_pos_b.masked_select(pos_mask).view(batch_size, len_q, len_k, n_heads)
-    attn = (attn_a + attn_pos_b) 
+    if self.enc and self.n_layer < self.hparams.max_loc_layer:
+      # [batch_size, len_q, len_q + len_k, n_heads]
+      attn_pos_b = torch.einsum("bidn,bjdn->bijn", (head_q, head_r))
+      attn_pos_b = attn_pos_b.masked_select(pos_mask).view(batch_size, len_q, len_k, n_heads)
+      attn = (attn_a + attn_pos_b)
+    else:
+      attn = attn_a
     if self.hparams.relative_pos_c:
-      # [batch_size, 1, len_k, n_heads]
-      #if self.hparams.sep_relative_loc:
-      #  attn_c = self.ub[file_idx[0]](head_k.transpose(2, 3)).permute(0, 3, 1, 2)
-      #else:
-      #  attn_c = self.ub[0](head_k.transpose(2, 3)).permute(0, 3, 1, 2)
       attn_c = self.ub(head_k.transpose(2, 3)).permute(0, 3, 1, 2)
       attn = attn + attn_c
-    if self.hparams.relative_pos_d:
+    if  self.hparams.relative_pos_d and (self.enc and self.n_layer < self.hparams.max_loc_layer):
       # [batch_size, 1, len_k+len_q, n_heads]
       if sep:
         attn_pos_d = self.vb[file_idx[0]](head_r.transpose(2, 3)).permute(0, 3, 1, 2).expand(-1, len_q, -1, -1)
       else:
         attn_pos_d = self.vb[0](head_r.transpose(2, 3)).permute(0, 3, 1, 2).expand(-1, len_q, -1, -1)
-      #attn_pos_d = attn_pos_d[pos_mask].view(batch_size, len_q, len_k, n_heads)
       attn_pos_d = attn_pos_d.masked_select(pos_mask).view(batch_size, len_q, len_k, n_heads)
       attn = attn + attn_pos_d
     attn = attn / self.temp
@@ -368,7 +331,13 @@ class RelativeMultiHeadAttn(nn.Module):
       attn.data.masked_fill_(attn_mask.unsqueeze(3), -self.hparams.inf)
     attn = self.softmax(attn).contiguous()
     attn = self.dropout(attn)
-    outputs = torch.einsum("bijn,bjdn->bidn", (attn, head_v)).contiguous().view(batch_size, len_q, -1)
+    outputs = torch.einsum("bijn,bjdn->bidn", (attn, head_v))
+    if self.hparams.sep_head_weight and self.enc:
+      # batch_size, len_q, n_head
+      head_weight = torch.sigmoid(self.head_w[file_idx[0]](q))
+      head_weight = head_weight.unsqueeze(2)
+      outputs = outputs * head_weight
+    outputs = outputs.contiguous().view(batch_size, len_q, -1)
 
     outputs = self.w_proj(outputs)
     outputs = self.layer_norm(outputs + residual)
@@ -508,7 +477,9 @@ class EncoderLayer(nn.Module):
 
     self.hparams = hparams
     if self.hparams.transformer_relative_pos:
-      self.attn = RelativeMultiHeadAttn(hparams, set_sep=(cur_layer <= self.hparams.sep_layer))
+      self.attn = RelativeMultiHeadAttn(hparams, enc=True, n_layer=cur_layer)
+      #self.attn = RelativeMultiHeadAttn(hparams, set_sep=(cur_layer < self.hparams.sep_layer), enc=True, n_layer=cur_layer)
+      #self.attn = RelativeMultiHeadAttn(hparams, set_sep=(cur_layer >= self.hparams.n_layers - self.hparams.sep_layer))
     else:
       self.attn = MultiHeadAttn(hparams)
     self.pos_ff = PositionwiseFF(hparams)
@@ -536,10 +507,12 @@ class DecoderLayer(nn.Module):
       self.y_attn = MultiHeadAttn(hparams)
       self.x_attn = MultiHeadAttn(hparams)
     else:
-      self.y_attn = RelativeMultiHeadAttn(hparams, set_sep=False)
-      #self.y_attn = MultiHeadAttn(hparams)
-      self.x_attn = RelativeMultiHeadAttn(hparams, set_sep=(cur_layer <= self.hparams.sep_layer))
-      #self.x_attn = MultiHeadAttn(hparams)
+      self.y_attn = RelativeMultiHeadAttn(hparams, enc=True, n_layer=cur_layer)
+      #self.y_attn = RelativeMultiHeadAttn(hparams, enc=False, n_layer=cur_layer)
+      #self.y_attn = RelativeMultiHeadAttn(hparams, set_sep=(cur_layer >= self.hparams.n_layers - self.hparams.sep_layer))
+      self.x_attn = RelativeMultiHeadAttn(hparams, enc=True, n_layer=cur_layer)
+      #self.x_attn = RelativeMultiHeadAttn(hparams, set_sep=(cur_layer >= self.hparams.n_layers - self.hparams.sep_layer))
+      #self.x_attn = RelativeMultiHeadAttn(hparams, set_sep=False)
     self.pos_ffn = PositionwiseFF(hparams)
 
   def forward(self, dec_input, enc_output, y_attn_mask=None, x_attn_mask=None, n_corrupts=0, file_idx=None, step=None):

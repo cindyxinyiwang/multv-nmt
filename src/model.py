@@ -762,7 +762,7 @@ class Seq2Seq(nn.Module):
     if self.hparams.cuda:
       self.enc_to_k = self.enc_to_k.cuda()
 
-  def forward(self, x_train, x_mask, x_len, x_pos_emb_idxs, y_train, y_mask, y_len, y_pos_emb_idxs, x_train_char_sparse=None, y_train_char_sparse=None, file_idx=None):
+  def forward(self, x_train, x_mask, x_len, x_pos_emb_idxs, y_train, y_mask, y_len, y_pos_emb_idxs, x_train_char_sparse=None, y_train_char_sparse=None, file_idx=None, step=None):
     # [batch_size, x_len, d_model * 2]
     if self.hparams.semb:
       x_enc, dec_init = self.encoder(x_train_char_sparse, x_len, file_idx=file_idx)
@@ -774,7 +774,7 @@ class Seq2Seq(nn.Module):
     logits = self.decoder(x_enc, x_enc_k, dec_init, x_mask, y_train, y_mask, y_train_char_sparse)
     return logits
 
-  def translate(self, x_train, x_mask, max_len=100, beam_size=5, poly_norm_m=0, x_train_char=None, y_train_char=None, file_idx=None):
+  def translate(self, x_train, x_mask, max_len=100, beam_size=5, poly_norm_m=0, x_train_char=None, y_train_char=None, file_idx=None, step=None):
     hyps = []
     if x_train_char:
       batch_size = len(x_train_char)

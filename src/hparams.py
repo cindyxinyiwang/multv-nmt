@@ -43,4 +43,9 @@ class HParams(object):
       self.dev_ref_file_list = self.dev_ref_file_list.split(',')
     if hasattr(self, 'dev_file_idx_list') and type(self.dev_file_idx_list) == str:
       self.dev_file_idx_list = [int(i) for i in self.dev_file_idx_list.split(',')]
+    if hasattr(self, 'sep_layer') and type(self.sep_layer) == str:
+      if not self.sep_layer: 
+        self.sep_layer = []
+      else:
+        self.sep_layer = [int(i) for i in self.sep_layer.split(',')]
 
