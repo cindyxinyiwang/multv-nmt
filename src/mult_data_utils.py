@@ -46,10 +46,15 @@ class MultDataUtil(object):
           self.train_trg_file_list.append(self.hparams.train_trg_file_list[0].replace("LAN", lan))
           if self.hparams.src_vocab_list:
             self.src_vocab_list.append(self.hparams.src_vocab_list[0].replace("LAN", lan))
+        if self.hparams.cons_vocab:
+          if self.hparams.src_vocab_list:
+            self.src_vocab_list = self.src_vocab_list[:2]
+          if self.hparams.src_char_vocab_from:
+            self.src_char_vocab_from = self.src_char_vocab_from[:2]
         if self.hparams.select_data:
           for i in range(2,len(self.train_src_file_list)):
-            self.train_src_file_list[i] = self.train_src_file_list[i] + ".azesel"
-            self.train_trg_file_list[i] = self.train_trg_file_list[i] + ".azesel"
+            self.train_src_file_list[i] = self.train_src_file_list[i] + "." + self.hparams.sel
+            self.train_trg_file_list[i] = self.train_trg_file_list[i] + "." + self.hparams.sel
             print(self.train_src_file_list)
             print(self.train_trg_file_list)
       self.hparams.lan_size = len(self.train_src_file_list)

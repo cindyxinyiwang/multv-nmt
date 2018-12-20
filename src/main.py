@@ -170,6 +170,8 @@ parser.add_argument("--sep_head_weight", action="store_true", help="max layer to
 parser.add_argument("--max_loc_layer", type=int, default=1000, help="max layer to set location emb")
 parser.add_argument("--sp_reg", action="store_true", help="max layer to sep loc")
 parser.add_argument("--select_data", action="store_true", help="max layer to sep loc")
+parser.add_argument("--cons_vocab", action="store_true", help="max layer to sep loc")
+parser.add_argument("--sel", type=str, default="", help="selected data extension")
 args = parser.parse_args()
 
 if args.bpe_ngram: args.n = None
@@ -372,6 +374,8 @@ def train():
       sep_head_weight=args.sep_head_weight,
       max_loc_layer=args.max_loc_layer,
       select_data=args.select_data,
+      cons_vocab=args.cons_vocab,
+      sel=args.sel,
     )
   # build or load model
   print("-" * 80)
