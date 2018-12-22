@@ -172,6 +172,8 @@ parser.add_argument("--sp_reg", action="store_true", help="max layer to sep loc"
 parser.add_argument("--select_data", action="store_true", help="max layer to sep loc")
 parser.add_argument("--cons_vocab", action="store_true", help="max layer to sep loc")
 parser.add_argument("--sel", type=str, default="", help="selected data extension")
+parser.add_argument("--sample_select", action="store_true", help="max layer to sep loc")
+parser.add_argument("--sim", type=str, default="", help="selected data extension")
 args = parser.parse_args()
 
 if args.bpe_ngram: args.n = None
@@ -376,6 +378,8 @@ def train():
       select_data=args.select_data,
       cons_vocab=args.cons_vocab,
       sel=args.sel,
+      sample_select=args.sample_select,
+      sim=args.sim,
     )
   # build or load model
   print("-" * 80)

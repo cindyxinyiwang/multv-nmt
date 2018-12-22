@@ -37,9 +37,11 @@ class MultDataUtil(object):
         self.src_char_vocab_from = []
       if self.hparams.src_vocab_list:
         self.src_vocab_list = []
+      self.lans = []
       with open(self.hparams.lang_file, "r") as myfile:
         for line in myfile:
           lan = line.strip()
+          self.lans.append(lan)
           if self.hparams.src_char_vocab_from:
             self.src_char_vocab_from.append(self.hparams.src_char_vocab_from.replace("LAN", lan))
           self.train_src_file_list.append(self.hparams.train_src_file_list[0].replace("LAN", lan))
@@ -72,13 +74,96 @@ class MultDataUtil(object):
       self.src_char_vsize = None
       setattr(self.hparams, 'src_char_vsize', None)
 
-    if not self.hparams.decode:
+    if (not self.hparams.decode) and (not self.hparams.sample_select):
       self.start_indices = [[] for i in range(len(self.train_src_file_list))]
       self.end_indices = [[] for i in range(len(self.train_src_file_list))]
       if self.hparams.balance_idx >= 0:
         print("load balance data {}...".format(self.hparams.balance_idx))
         self.bal_x_train, self.bal_y_train, self.bal_x_char_kv, self.bal_x_len = self._build_parallel(self.train_src_file_list[self.hparams.balance_idx], self.train_trg_file_list[self.hparams.balance_idx], outprint=True)
- 
+    elif (not self.hparams.decode) and self.hparams.sample_select:
+      self.start_indices = []
+      self.end_indices = []     
+      # {trg: [(src1, src_char1, src_len1, sim1), (src2, src_char1, src_len1, sim2), ..., srcn]}
+      self.trg2srcs = self.get_trg2srcs()
+
+  def get_trg2srcs(self):
+    trg2srcs = {}
+    for data_idx in range(self.hparams.lan_size):
+      x_train, y_train, x_char_kv, x_len = self._build_parallel(self.train_src_file_list[data_idx], self.train_trg_file_list[data_idx], outprint=True)
+      sim_file = "data/{}_eng/ted-train.mtok.{}.{}".format(self.lans[data_idx], self.lans[data_idx], self.hparams.sim)
+      sim_score = []
+      with open(sim_file) as myfile:
+        for line in myfile:
+          sim_score.append(float(line.strip()))
+      for i, y in enumerate(y_train):
+        y = tuple(y)
+        if not y in trg2srcs:
+          trg2srcs[y] = [[[] for _ in range(self.hparams.lan_size)], [[] for _ in range(self.hparams.lan_size)], [0 for _ in range(self.hparams.lan_size)], [0 for _ in range(self.hparams.lan_size)]]
+        if x_train:
+          trg2srcs[y][0][data_idx] = x_train[i]
+        else:
+          trg2srcs[y][0][data_idx] = x_char_kv[i]
+        trg2srcs[y][2][data_idx] = x_len[i]
+        trg2srcs[y][3][data_idx] = sim_score[i] + 0.001
+    print("total number of different engs: {}".format(len(trg2srcs)))
+    return trg2srcs
+
+  def next_train_select(self):
+    # set batcher indices once
+    if not self.start_indices:
+      start_indices, end_indices = [], []
+      if self.hparams.batcher == "word":
+        start_index, end_index, count = 0, 0, 0
+        while True:
+          trg = list(self.trg2srcs.keys())[end_index]
+          count += (max(self.trg2srcs[trg][2]) + len(trg))
+          end_index += 1
+          if end_index >= len(self.trg2srcs):
+            start_indices.append(start_index)
+            end_indices.append(end_index)
+            break
+          if count > self.hparams.batch_size: 
+            start_indices.append(start_index)
+            end_indices.append(end_index)
+            count = 0
+            start_index = end_index
+      elif self.hparams.batcher == "sent":
+        start_index, end_index, count = 0, 0, 0
+        while end_index < len(self.trg2srcs):
+          end_index = min(start_index + self.hparams.batch_size, len(self.trg2srcs))
+          start_indices.append(start_index)
+          end_indices.append(end_index)
+          start_index = end_index
+      else:
+        print("unknown batcher")
+        exit(1)
+      self.start_indices = start_indices
+      self.end_indices = end_indices
+    for step_b, batch_idx in enumerate(np.random.permutation(len(self.start_indices))):
+      start_index, end_index = self.start_indices[batch_idx], self.end_indices[batch_idx]
+      x, y, x_char, train_file_index = [], [], [], []
+      for i in range(start_index, end_index):
+        trg = list(self.trg2srcs.keys())[i]
+        src_item = self.trg2srcs[trg]
+        y.append(list(trg))
+        src_sims = np.exp(np.array(src_item[3]))
+        src_idx = np.random.choice([i for i in range(self.hparams.lan_size)], 1, p=src_sims/sum(src_sims))[0]
+        if src_item[0]: x.append(src_item[0][src_idx])
+        if src_item[1]: x_char.append(src_item[1][src_idx])
+        train_file_index.append(src_idx)
+      if self.shuffle:
+        x, y, x_char, train_file_index = self.sort_by_xlen([x, y, x_char, train_file_index])
+      # pad
+      x, x_mask, x_count, x_len, x_pos_emb_idxs, x_char = self._pad(x, self.hparams.pad_id, x_char, self.hparams.src_char_vsize)
+      y, y_mask, y_count, y_len, y_pos_emb_idxs, y_char = self._pad(y, self.hparams.pad_id)
+      batch_size = end_index - start_index
+      if step_b == len(self.start_indices)-1:
+        eop = True
+      else:
+        eop = False
+     
+      return x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, None, eop, train_file_index
+
   def get_char_emb(self, word_idx, is_trg=True):
     if is_trg:
       w2i, i2w, vsize = self.trg_char_w2i, self.trg_char_i2w, self.hparams.trg_char_vsize
@@ -103,6 +188,12 @@ class MultDataUtil(object):
     return ret
 
   def next_train(self):
+    if self.hparams.sample_select:
+      yield self.next_train_select()
+    else:
+      yield self.next_train_normal()
+
+  def next_train_normal(self):
     step = 0
     while True:
       if self.hparams.lang_shuffle:
@@ -147,38 +238,7 @@ class MultDataUtil(object):
               for s, bal_batch_idx in enumerate(np.random.permutation(len(self.start_indices[self.hparams.balance_idx]))):
                 yield self.yield_data(self.hparams.balance_idx, bal_batch_idx, self.bal_x_train, self.bal_x_char_kv, self.bal_y_train, s)
           step += 1
-          yield self.yield_data(data_idx, batch_idx, x_train, x_char_kv, y_train, step_b)
-          #start_index, end_index = self.start_indices[data_idx][batch_idx], self.end_indices[data_idx][batch_idx]
-          #x, y, x_char = [], [], [] 
-          #if x_train:
-          #  x = x_train[start_index:end_index]
-          #if x_char_kv:
-          #  x_char = x_char_kv[start_index:end_index]
-          #y = y_train[start_index:end_index]
-          #if self.hparams.sample_sep > 0:
-          #  replace = np.random.binomial(1, p=self.hparams.sample_sep)
-          #else:
-          #  replace = 0
-          #if replace:
-          #  if data_idx == 0:
-          #    train_file_index = [1 for i in range(end_index - start_index)]
-          #  else:
-          #    train_file_index = [0 for i in range(end_index - start_index)]
-          #else:
-          #  train_file_index = [data_idx for i in range(end_index - start_index)] 
-          #if self.shuffle:
-          #  x, y, x_char, train_file_index = self.sort_by_xlen([x, y, x_char, train_file_index])
-
-          ## pad
-          #x, x_mask, x_count, x_len, x_pos_emb_idxs, x_char = self._pad(x, self.hparams.pad_id, x_char, self.hparams.src_char_vsize)
-          #y, y_mask, y_count, y_len, y_pos_emb_idxs, y_char = self._pad(y, self.hparams.pad_id)
-          #batch_size = end_index - start_index
-          #if data_idx == self.train_data_queue[-1] and batch_idx == len(self.start_indices[data_idx])-1:
-          #  eop = True
-          #else:
-          #  eop = False
-
-          #yield x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, None, eop, train_file_index
+          return self.yield_data(data_idx, batch_idx, x_train, x_char_kv, y_train, step_b)
  
   def yield_data(self, data_idx, batch_idx, x_train, x_char_kv, y_train, step):
     start_index, end_index = self.start_indices[data_idx][batch_idx], self.end_indices[data_idx][batch_idx]
