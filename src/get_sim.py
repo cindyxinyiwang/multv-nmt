@@ -2,7 +2,7 @@
 vocab_size = 8000
 base_lan = "aze"
 #lan_lists = ["rus", "por", "ces"]
-lan_lists = ["aze"]
+lan_lists = ["aze", "tur", "rus", "por", "ces"]
 
 
 def sim_by_ngram(base_lan, lan_lists):

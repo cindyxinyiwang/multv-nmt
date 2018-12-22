@@ -98,71 +98,85 @@ class MultDataUtil(object):
       for i, y in enumerate(y_train):
         y = tuple(y)
         if not y in trg2srcs:
-          trg2srcs[y] = [[[] for _ in range(self.hparams.lan_size)], [[] for _ in range(self.hparams.lan_size)], [0 for _ in range(self.hparams.lan_size)], [0 for _ in range(self.hparams.lan_size)]]
+          trg2srcs[y] = [[[] for _ in range(self.hparams.lan_size)], [[] for _ in range(self.hparams.lan_size)], [0 for _ in range(self.hparams.lan_size)], [-float("inf") for _ in range(self.hparams.lan_size)]]
         if x_train:
           trg2srcs[y][0][data_idx] = x_train[i]
         else:
-          trg2srcs[y][0][data_idx] = x_char_kv[i]
+          trg2srcs[y][1][data_idx] = x_char_kv[i]
         trg2srcs[y][2][data_idx] = x_len[i]
-        trg2srcs[y][3][data_idx] = sim_score[i] + 0.001
+        trg2srcs[y][3][data_idx] = sim_score[i]
     print("total number of different engs: {}".format(len(trg2srcs)))
     return trg2srcs
 
   def next_train_select(self):
-    # set batcher indices once
-    if not self.start_indices:
-      start_indices, end_indices = [], []
-      if self.hparams.batcher == "word":
-        start_index, end_index, count = 0, 0, 0
-        while True:
-          trg = list(self.trg2srcs.keys())[end_index]
-          count += (max(self.trg2srcs[trg][2]) + len(trg))
-          end_index += 1
-          if end_index >= len(self.trg2srcs):
+    step = 0
+    while True:
+      # set batcher indices once
+      if not self.start_indices:
+        print("batching data...")
+        start_indices, end_indices = [], []
+        trgs = np.array(list(self.trg2srcs.keys()))
+        lens = [len(t) for t in trgs]
+        trg_idx = np.argsort(lens)
+        trgs = trgs[trg_idx].tolist()
+        if self.hparams.batcher == "word":
+          start_index, end_index, count = 0, 0, 0
+          for trg in trgs:
+            src_item = self.trg2srcs[trg]
+            count += (max(src_item[2]) + len(trg))
+            end_index += 1
+            if count > self.hparams.batch_size: 
+              start_indices.append(start_index)
+              end_indices.append(end_index)
+              count = 0
+              start_index = end_index
+          if start_index < end_index:
             start_indices.append(start_index)
             end_indices.append(end_index)
-            break
-          if count > self.hparams.batch_size: 
+        elif self.hparams.batcher == "sent":
+          start_index, end_index, count = 0, 0, 0
+          while end_index < len(self.trg2srcs):
+            end_index = min(start_index + self.hparams.batch_size, len(self.trg2srcs))
             start_indices.append(start_index)
             end_indices.append(end_index)
-            count = 0
             start_index = end_index
-      elif self.hparams.batcher == "sent":
-        start_index, end_index, count = 0, 0, 0
-        while end_index < len(self.trg2srcs):
-          end_index = min(start_index + self.hparams.batch_size, len(self.trg2srcs))
-          start_indices.append(start_index)
-          end_indices.append(end_index)
-          start_index = end_index
-      else:
-        print("unknown batcher")
-        exit(1)
-      self.start_indices = start_indices
-      self.end_indices = end_indices
-    for step_b, batch_idx in enumerate(np.random.permutation(len(self.start_indices))):
-      start_index, end_index = self.start_indices[batch_idx], self.end_indices[batch_idx]
-      x, y, x_char, train_file_index = [], [], [], []
-      for i in range(start_index, end_index):
-        trg = list(self.trg2srcs.keys())[i]
-        src_item = self.trg2srcs[trg]
-        y.append(list(trg))
-        src_sims = np.exp(np.array(src_item[3]))
-        src_idx = np.random.choice([i for i in range(self.hparams.lan_size)], 1, p=src_sims/sum(src_sims))[0]
-        if src_item[0]: x.append(src_item[0][src_idx])
-        if src_item[1]: x_char.append(src_item[1][src_idx])
-        train_file_index.append(src_idx)
-      if self.shuffle:
-        x, y, x_char, train_file_index = self.sort_by_xlen([x, y, x_char, train_file_index])
-      # pad
-      x, x_mask, x_count, x_len, x_pos_emb_idxs, x_char = self._pad(x, self.hparams.pad_id, x_char, self.hparams.src_char_vsize)
-      y, y_mask, y_count, y_len, y_pos_emb_idxs, y_char = self._pad(y, self.hparams.pad_id)
-      batch_size = end_index - start_index
-      if step_b == len(self.start_indices)-1:
-        eop = True
-      else:
-        eop = False
-     
-      return x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, None, eop, train_file_index
+        else:
+          print("unknown batcher")
+          exit(1)
+        self.start_indices = start_indices
+        self.end_indices = end_indices
+        print("finished batching data...")
+      for step_b, batch_idx in enumerate(np.random.permutation(len(self.start_indices))):
+        if step > self.hparams.sample_select_tau_step:
+          tau = self.hparams.sample_select_tau_min
+        else:
+          tau = self.hparams.sample_select_tau_max - (self.hparams.sample_select_tau_max-self.hparams.sample_select_tau_min) * step / self.hparams.sample_select_tau_step
+        step += 1
+        start_index, end_index = self.start_indices[batch_idx], self.end_indices[batch_idx]
+        x, y, x_char, train_file_index = [], [], [], []
+        for i in range(start_index, end_index):
+          trg = trgs[i]
+          src_item = self.trg2srcs[trg]
+          y.append(list(trg))
+          src_sims = np.exp(np.array(src_item[3]) * tau)
+          src_idx = np.random.choice([i for i in range(self.hparams.lan_size)], 1, p=src_sims/sum(src_sims))[0]
+          if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
+            x_char.append(src_item[1][src_idx])
+          else:
+            x.append(src_item[0][src_idx])
+          train_file_index.append(src_idx)
+        if self.shuffle:
+          x, y, x_char, train_file_index = self.sort_by_xlen([x, y, x_char, train_file_index])
+        # pad
+        x, x_mask, x_count, x_len, x_pos_emb_idxs, x_char = self._pad(x, self.hparams.pad_id, x_char, self.hparams.src_char_vsize)
+        y, y_mask, y_count, y_len, y_pos_emb_idxs, y_char = self._pad(y, self.hparams.pad_id)
+        batch_size = end_index - start_index
+        if step_b == len(self.start_indices)-1:
+          eop = True
+        else:
+          eop = False
+       
+        yield x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, None, eop, train_file_index
 
   def get_char_emb(self, word_idx, is_trg=True):
     if is_trg:
@@ -188,14 +202,14 @@ class MultDataUtil(object):
     return ret
 
   def next_train(self):
-    if self.hparams.sample_select:
-      yield self.next_train_select()
-    else:
-      yield self.next_train_normal()
+      if self.hparams.sample_select:
+        return self.next_train_select()
+      else:
+        return self.next_train_normal()
 
   def next_train_normal(self):
-    step = 0
     while True:
+      step = 0
       if self.hparams.lang_shuffle:
         self.train_data_queue = np.random.permutation(len(self.train_src_file_list))
       else:
@@ -233,12 +247,12 @@ class MultDataUtil(object):
           self.start_indices[data_idx] = start_indices
           self.end_indices[data_idx] = end_indices
         for step_b, batch_idx in enumerate(np.random.permutation(len(self.start_indices[data_idx]))):
-          if step > self.hparams.sep_step and self.hparams.balance_idx >= 0:
-            if data_idx != self.hparams.balance_idx and step_b % self.hparams.balance_ratio * len(self.start_indices[self.hparams.balance_idx]) == 0:
-              for s, bal_batch_idx in enumerate(np.random.permutation(len(self.start_indices[self.hparams.balance_idx]))):
-                yield self.yield_data(self.hparams.balance_idx, bal_batch_idx, self.bal_x_train, self.bal_x_char_kv, self.bal_y_train, s)
+          #if step > self.hparams.sep_step and self.hparams.balance_idx >= 0:
+          #  if data_idx != self.hparams.balance_idx and step_b % self.hparams.balance_ratio * len(self.start_indices[self.hparams.balance_idx]) == 0:
+          #    for s, bal_batch_idx in enumerate(np.random.permutation(len(self.start_indices[self.hparams.balance_idx]))):
+          #      return self.yield_data(self.hparams.balance_idx, bal_batch_idx, self.bal_x_train, self.bal_x_char_kv, self.bal_y_train, s)
           step += 1
-          return self.yield_data(data_idx, batch_idx, x_train, x_char_kv, y_train, step_b)
+          yield self.yield_data(data_idx, batch_idx, x_train, x_char_kv, y_train, step_b)
  
   def yield_data(self, data_idx, batch_idx, x_train, x_char_kv, y_train, step):
     start_index, end_index = self.start_indices[data_idx][batch_idx], self.end_indices[data_idx][batch_idx]
