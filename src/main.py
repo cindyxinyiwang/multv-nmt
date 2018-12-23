@@ -177,6 +177,11 @@ parser.add_argument("--sim", type=str, default="", help="selected data extension
 parser.add_argument("--sample_select_tau_max", type=float, default=1., help="selected data extension")
 parser.add_argument("--sample_select_tau_min", type=float, default=1., help="selected data extension")
 parser.add_argument("--sample_select_tau_step", type=int, default=1., help="selected data extension")
+parser.add_argument("--sample_swap", action="store_true", help="max layer to sep loc")
+parser.add_argument("--sample_swap_p_max", type=float, default=1., help="selected data extension")
+parser.add_argument("--sample_swap_p_min", type=float, default=0., help="selected data extension")
+parser.add_argument("--sample_swap_p_step", type=int, default=1., help="selected data extension")
+
 args = parser.parse_args()
 
 if args.bpe_ngram: args.n = None
@@ -386,6 +391,10 @@ def train():
       sample_select_tau_max=args.sample_select_tau_max,
       sample_select_tau_min=args.sample_select_tau_min,
       sample_select_tau_step=args.sample_select_tau_step,
+      sample_swap=args.sample_swap,
+      sample_swap_p_max=args.sample_swap_p_max,
+      sample_swap_p_min=args.sample_swap_p_min,
+      sample_swap_p_step=args.sample_swap_p_step,
     )
   # build or load model
   print("-" * 80)

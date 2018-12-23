@@ -94,6 +94,10 @@ class MultDataUtil(object):
       sim_score = []
       with open(sim_file) as myfile:
         for line in myfile:
+          #if data_idx <= 1:
+          #  sim_score.append(3.0)
+          #else:
+          #  sim_score.append(float(line.strip()))
           sim_score.append(float(line.strip()))
       for i, y in enumerate(y_train):
         y = tuple(y)
@@ -151,6 +155,10 @@ class MultDataUtil(object):
           tau = self.hparams.sample_select_tau_min
         else:
           tau = self.hparams.sample_select_tau_max - (self.hparams.sample_select_tau_max-self.hparams.sample_select_tau_min) * step / self.hparams.sample_select_tau_step
+        if step > self.hparams.sample_swap_p_step:
+          p = self.hparams.sample_swap_p_min
+        else:
+          p = self.hparams.sample_swap_p_max - (self.hparams.sample_swap_p_max-self.hparams.sample_swap_p_min) * step / self.hparams.sample_swap_p_step
         step += 1
         start_index, end_index = self.start_indices[batch_idx], self.end_indices[batch_idx]
         x, y, x_char, train_file_index = [], [], [], []
@@ -161,9 +169,23 @@ class MultDataUtil(object):
           src_sims = np.exp(np.array(src_item[3]) * tau)
           src_idx = np.random.choice([i for i in range(self.hparams.lan_size)], 1, p=src_sims/sum(src_sims))[0]
           if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
-            x_char.append(src_item[1][src_idx])
+            if self.hparams.sample_swap and src_idx > 1 and src_item[1][1] and p > 0:
+              seq1, seq2 = np.array(src_item[1][1]), np.array(src_item[1][src_idx])
+              l = min(len(seq1), len(seq2))
+              mask = np.random.binomial(1, p, size=l)
+              seq2[mask==1] = seq1[mask==1]
+              x_char.append(seq2)
+            else:
+              x_char.append(src_item[1][src_idx])
           else:
-            x.append(src_item[0][src_idx])
+            if self.hparams.sample_swap and src_idx > 1 and src_item[0][1] and p > 0:
+              seq1, seq2 = np.array(src_item[0][1]), np.array(src_item[0][src_idx])
+              l = min(len(seq1), len(seq2))
+              mask = np.random.binomial(1, p, size=l)
+              seq2[mask==1] = seq1[mask==1]
+              x.append(seq2.tolist())
+            else:
+              x.append(src_item[0][src_idx])
           train_file_index.append(src_idx)
         if self.shuffle:
           x, y, x_char, train_file_index = self.sort_by_xlen([x, y, x_char, train_file_index])
