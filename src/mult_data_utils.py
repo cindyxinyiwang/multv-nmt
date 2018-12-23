@@ -173,7 +173,8 @@ class MultDataUtil(object):
               seq1, seq2 = np.array(src_item[1][1]), np.array(src_item[1][src_idx])
               l = min(len(seq1), len(seq2))
               mask = np.random.binomial(1, p, size=l)
-              seq2[mask==1] = seq1[mask==1]
+              idx = np.where(mask==1)[0]
+              seq2[idx] = seq1[idx]
               x_char.append(seq2)
             else:
               x_char.append(src_item[1][src_idx])
@@ -182,7 +183,8 @@ class MultDataUtil(object):
               seq1, seq2 = np.array(src_item[0][1]), np.array(src_item[0][src_idx])
               l = min(len(seq1), len(seq2))
               mask = np.random.binomial(1, p, size=l)
-              seq2[mask==1] = seq1[mask==1]
+              idx = np.where(mask==1)[0]
+              seq2[idx] = seq1[idx]
               x.append(seq2.tolist())
             else:
               x.append(src_item[0][src_idx])
