@@ -48,11 +48,11 @@ class MultDataUtil(object):
           self.train_trg_file_list.append(self.hparams.train_trg_file_list[0].replace("LAN", lan))
           if self.hparams.src_vocab_list:
             self.src_vocab_list.append(self.hparams.src_vocab_list[0].replace("LAN", lan))
-        if self.hparams.cons_vocab:
-          if self.hparams.src_vocab_list:
-            self.src_vocab_list = self.src_vocab_list[:2]
-          if self.hparams.src_char_vocab_from:
-            self.src_char_vocab_from = self.src_char_vocab_from[:2]
+        #if self.hparams.cons_vocab:
+        #  if self.hparams.src_vocab_list:
+        #    self.src_vocab_list = self.src_vocab_list[:2]
+        #  if self.hparams.src_char_vocab_from:
+        #    self.src_char_vocab_from = self.src_char_vocab_from[:2]
         if self.hparams.select_data:
           for i in range(2,len(self.train_src_file_list)):
             self.train_src_file_list[i] = self.train_src_file_list[i] + "." + self.hparams.sel
@@ -98,7 +98,17 @@ class MultDataUtil(object):
           #  sim_score.append(3.0)
           #else:
           #  sim_score.append(float(line.strip()))
-          sim_score.append(float(line.strip()))
+
+          if data_idx <= 1:
+            sim_score.append(3.0)
+          elif data_idx == 2:
+            sim_score.append(0)
+          elif data_idx == 3:
+            sim_score.append(2.0)
+          else:
+            sim_score.append(1.0)
+
+          #sim_score.append(float(line.strip()))
       for i, y in enumerate(y_train):
         y = tuple(y)
         if not y in trg2srcs:
@@ -154,7 +164,10 @@ class MultDataUtil(object):
         if step > self.hparams.sample_select_tau_step:
           tau = self.hparams.sample_select_tau_min
         else:
-          tau = self.hparams.sample_select_tau_max - (self.hparams.sample_select_tau_max-self.hparams.sample_select_tau_min) * step / self.hparams.sample_select_tau_step
+          if self.hparams.sample_select_tau_max > self.hparams.sample_select_tau_min:
+            tau = self.hparams.sample_select_tau_max - (self.hparams.sample_select_tau_max-self.hparams.sample_select_tau_min) * step / self.hparams.sample_select_tau_step
+          else:
+            tau = self.hparams.sample_select_tau_max + (self.hparams.sample_select_tau_min-self.hparams.sample_select_tau_max) * step / self.hparams.sample_select_tau_step
         if step > self.hparams.sample_swap_p_step:
           p = self.hparams.sample_swap_p_min
         else:
