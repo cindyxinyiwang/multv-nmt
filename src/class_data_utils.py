@@ -22,12 +22,6 @@ class ClassDataUtil(object):
     else:
       print("not using single src word vocab..")
 
-    if self.hparams.trg_vocab:
-      self.trg_i2w, self.trg_w2i = self._build_vocab(self.hparams.trg_vocab, max_vocab_size=self.hparams.trg_vocab_size)
-      self.hparams.trg_vocab_size = len(self.trg_i2w)
-    else:
-      print("not using single trg word vocab..")
-
     if self.hparams.lang_file:
       self.train_src_file_list = []
       if self.hparams.src_char_vocab_from:
@@ -45,13 +39,14 @@ class ClassDataUtil(object):
           if self.hparams.src_vocab_list:
             self.src_vocab_list.append(self.hparams.src_vocab_list[0].replace("LAN", lan))
       self.hparams.lan_size = len(self.train_src_file_list)
+    self.hparams.trg_vocab_size = self.hparams.lan_size
     if self.hparams.src_vocab_list:
       self.src_i2w, self.src_w2i = self._build_char_vocab_from(self.src_vocab_list, self.hparams.src_vocab_size)
       self.hparams.src_vocab_size = len(self.src_i2w)
       print("use combined src vocab at size {}".format(self.hparams.src_vocab_size))
 
     if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
-      self.src_char_i2w, self.src_char_w2i = self._build_char_vocab_from(self.src_char_vocab_from, self.hparams.src_char_vocab_size, n=self.hparams.char_ngram_n, single_n=self.hparams.single_n)
+      self.src_char_i2w, self.src_char_w2i = self._build_char_vocab_from(self.src_char_vocab_from, self.hparams.src_char_vocab_size, n=self.hparams.char_ngram_n)
       self.src_char_vsize = len(self.src_char_i2w)
       setattr(self.hparams, 'src_char_vsize', self.src_char_vsize)
       print("src_char_vsize={}".format(self.src_char_vsize))
@@ -66,38 +61,40 @@ class ClassDataUtil(object):
       self.x_char_kv = []
       self.x_len = []
       self.y_train = []
-      for data_idx in self.train_data_queue:
-        x_train, y_train, x_char_kv, x_len = self._build_parallel(self.train_src_file_list[data_idx], self.train_trg_file_list[data_idx], outprint=(len(self.start_indices[data_idx]) == 0))
-        #x_train, y_train, x_char_kv, x_len = self._build_parallel(self.train_src_file_list[data_idx], self.train_trg_file_list[data_idx], outprint=True)
-        # set batcher indices once
-        if not self.start_indices[data_idx]:
-          start_indices, end_indices = [], []
-          if self.hparams.batcher == "word":
-            start_index, end_index, count = 0, 0, 0
-            while True:
-              count += (x_len[end_index] + len(y_train[end_index]))
-              end_index += 1
-              if end_index >= len(x_len):
-                start_indices.append(start_index)
-                end_indices.append(end_index)
-                break
-              if count > self.hparams.batch_size: 
-                start_indices.append(start_index)
-                end_indices.append(end_index)
-                count = 0
-                start_index = end_index
-          elif self.hparams.batcher == "sent":
-            start_index, end_index, count = 0, 0, 0
-            while end_index < len(x_len):
-              end_index = min(start_index + self.hparams.batch_size, len(x_len))
-              start_indices.append(start_index)
-              end_indices.append(end_index)
-              start_index = end_index
-          else:
-            print("unknown batcher")
-            exit(1)
-          self.start_indices[data_idx] = start_indices
-          self.end_indices[data_idx] = end_indices
+      for data_idx in range(len(self.train_src_file_list)):
+        x_train, y_train, x_char_kv, x_len = self._build_parallel(self.train_src_file_list[data_idx], data_idx, outprint=True)
+        self.x_train.extend(x_train)
+        self.x_char_kv.extend(x_char_kv)
+        self.x_len.extend(x_len)
+        self.y_train.extend(y_train)
+      if self.shuffle:
+        self.x_train, self.y_train, self.x_char_kv, self.x_len = self.sort_by_xlen([self.x_train, self.y_train, self.x_char_kv, self.x_len], descend=False)
+      # set batcher indices once
+      self.start_indices, self.end_indices = [], []
+      if self.hparams.batcher == "word":
+        start_index, end_index, count = 0, 0, 0
+        while True:
+          count += x_len[end_index]
+          end_index += 1
+          if end_index >= len(x_len):
+            self.start_indices.append(start_index)
+            self.end_indices.append(end_index)
+            break
+          if count > self.hparams.batch_size: 
+            self.start_indices.append(start_index)
+            self.end_indices.append(end_index)
+            count = 0
+            start_index = end_index
+      elif self.hparams.batcher == "sent":
+        start_index, end_index, count = 0, 0, 0
+        while end_index < len(x_len):
+          end_index = min(start_index + self.hparams.batch_size, len(x_len))
+          self.start_indices.append(start_index)
+          self.end_indices.append(end_index)
+          start_index = end_index
+      else:
+        print("unknown batcher")
+        exit(1)
 
   def get_char_emb(self, word_idx, is_trg=True):
     if is_trg:
@@ -116,58 +113,42 @@ class ClassDataUtil(object):
       key = torch.LongTensor([[0 for _ in range(len(kv.keys()))], list(kv.keys())])
       val = torch.FloatTensor(list(kv.values()))
       ret = [torch.sparse.FloatTensor(key, val, torch.Size([1, vsize]))]
-    elif self.hparams.char_input is not None:
-      ret = self._get_char(word, i2w, w2i, n=self.hparams.n)
-      ret = Variable(torch.LongTensor(ret).unsqueeze(0).unsqueeze(0))
-      if self.hparams.cuda: ret = ret.cuda()
     return ret
 
   def next_train(self):
     while True:
       step = 0
-      self.train_data_queue = [i for i in range(len(self.train_src_file_list))]
-      for step_b, batch_idx in enumerate(np.random.permutation(len(self.start_indices[data_idx]))):
+      for step_b, batch_idx in enumerate(np.random.permutation(len(self.start_indices))):
         step += 1
-        yield self.yield_data(data_idx, batch_idx, x_train, x_char_kv, y_train, step_b)
+        yield self.yield_data(batch_idx, self.x_train, self.x_char_kv, self.y_train, step_b)
  
-  def yield_data(self, data_idx, batch_idx, x_train, x_char_kv, y_train, step):
-    start_index, end_index = self.start_indices[data_idx][batch_idx], self.end_indices[data_idx][batch_idx]
+  def yield_data(self, batch_idx, x_train, x_char_kv, y_train, step):
+    start_index, end_index = self.start_indices[batch_idx], self.end_indices[batch_idx]
     x, y, x_char = [], [], [] 
     if x_train:
       x = x_train[start_index:end_index]
     if x_char_kv:
       x_char = x_char_kv[start_index:end_index]
     y = y_train[start_index:end_index]
-    if self.hparams.sample_sep > 0:
-      replace = np.random.binomial(1, p=self.hparams.sample_sep)
-    else:
-      replace = 0
-    if replace:
-      if data_idx == 0:
-        train_file_index = [1 for i in range(end_index - start_index)]
-      else:
-        train_file_index = [0 for i in range(end_index - start_index)]
-    else:
-      train_file_index = [data_idx for i in range(end_index - start_index)] 
+    train_file_index = y_train 
     if self.shuffle:
       x, y, x_char, train_file_index = self.sort_by_xlen([x, y, x_char, train_file_index])
 
     # pad
     x, x_mask, x_count, x_len, x_pos_emb_idxs, x_char = self._pad(x, self.hparams.pad_id, x_char, self.hparams.src_char_vsize)
-    y, y_mask, y_count, y_len, y_pos_emb_idxs, y_char = self._pad(y, self.hparams.pad_id)
     batch_size = end_index - start_index
-    if data_idx == self.train_data_queue[-1] and step == len(self.start_indices[data_idx])-1:
+    if step == len(self.start_indices)-1:
       eop = True
     else:
       eop = False
 
-    return x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, None, eop, train_file_index
+    return x, x_mask, x_count, x_len, x_pos_emb_idxs, y, batch_size, x_char, None, eop, train_file_index
 
   def next_dev(self, dev_batch_size=1):
     first_dev = True
     while True:
       for data_idx in range(len(self.hparams.dev_src_file_list)):
-        x_dev, y_dev, x_char_kv, x_dev_len = self._build_parallel(self.hparams.dev_src_file_list[data_idx], self.hparams.dev_trg_file_list[data_idx], is_train=False, outprint=first_dev)
+        x_dev, y_dev, x_char_kv, x_dev_len = self._build_parallel(self.hparams.dev_src_file_list[data_idx], data_idx, is_train=False, outprint=first_dev)
         first_dev = False
         start_index, end_index = 0, 0
         while end_index < len(x_dev_len):
@@ -184,7 +165,6 @@ class ClassDataUtil(object):
 
           # pad
           x, x_mask, x_count, x_len, x_pos_emb_idxs, x_char = self._pad(x, self.hparams.pad_id, x_char, self.hparams.src_char_vsize)
-          y, y_mask, y_count, y_len, y_pos_emb_idxs, y_char = self._pad(y, self.hparams.pad_id)
           batch_size = end_index - start_index
           if end_index == len(x_dev_len):
             eof = True
@@ -195,7 +175,7 @@ class ClassDataUtil(object):
           else:
             eop = False
           start_index = end_index
-          yield x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, None, eop, eof, dev_file_index
+          yield x, x_mask, x_count, x_len, x_pos_emb_idxs, y,  batch_size, x_char, None, eop, eof, dev_file_index
 
 
   def next_test(self, test_batch_size=1):
@@ -324,35 +304,30 @@ class ClassDataUtil(object):
     return count
 
 
-  def _build_parallel(self, src_file_name, trg_file_name, is_train=True, shuffle=True, outprint=False):
+  def _build_parallel(self, src_file_name, trg_idx, is_train=True, shuffle=True, outprint=False):
     if outprint:
-      print("loading parallel sentences from {} {}".format(src_file_name, trg_file_name))
+      print("loading parallel sentences from {} ".format(src_file_name))
     with open(src_file_name, 'r', encoding='utf-8') as f:
       src_lines = f.read().split('\n')
-    with open(trg_file_name, 'r', encoding='utf-8') as f:
-      trg_lines = f.read().split('\n')
     src_char_kv_data = []
     src_data = []
     trg_data = []
     line_count = 0
     skip_line_count = 0
     src_unk_count = 0
-    trg_unk_count = 0
 
     src_lens = []
 
-    for src_line, trg_line in zip(src_lines, trg_lines):
+    for src_line in src_lines:
       src_tokens = src_line.split()
-      trg_tokens = trg_line.split()
-      if is_train and not src_tokens or not trg_tokens: 
+      if is_train and not src_tokens: 
         skip_line_count += 1
         continue
-      if is_train and not self.hparams.decode and self.hparams.max_len and len(src_tokens) > self.hparams.max_len and len(trg_tokens) > self.hparams.max_len:
+      if is_train and not self.hparams.decode and self.hparams.max_len and len(src_tokens) > self.hparams.max_len:
         skip_line_count += 1
         continue
       
       src_lens.append(len(src_tokens))
-      trg_indices = [self.hparams.bos_id] 
       if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
         src_char_kv = [{0:0}]
       else:
@@ -372,21 +347,13 @@ class ClassDataUtil(object):
           else:
             src_indices.append(self.src_w2i[src_tok])
 
-      for trg_tok in trg_tokens:
-        if trg_tok not in self.trg_w2i:
-          trg_indices.append(self.hparams.unk_id)
-          trg_unk_count += 1
-        else:
-          trg_indices.append(self.trg_w2i[trg_tok])
-
-      trg_indices.append(self.hparams.eos_id)
-      trg_data.append(trg_indices)
       if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
         src_char_kv.append({0:0})
         src_char_kv_data.append(src_char_kv)
       else:
         src_indices.append(self.hparams.eos_id)
         src_data.append(src_indices)
+      trg_data.append(trg_idx)
       line_count += 1
       if outprint:
         if line_count % 10000 == 0:
@@ -395,7 +362,7 @@ class ClassDataUtil(object):
     if is_train and shuffle:
       src_data, trg_data, src_char_kv_data = self.sort_by_xlen([src_data, trg_data, src_char_kv_data], descend=False)
     if outprint:
-      print("src_unk={}, trg_unk={}".format(src_unk_count, trg_unk_count))
+      print("src_unk={}".format(src_unk_count))
       print("lines={}, skipped_lines={}".format(len(trg_data), skip_line_count))
     return src_data, trg_data, src_char_kv_data, src_lens
 
@@ -518,23 +485,6 @@ class ClassDataUtil(object):
             i2w.append(w)
             i2w_set.add(w)
             if size > 0 and cur_vsize > size: break
-    #else:
-    #  i2w_sets = []
-    #  for vfile, size in zip(vfile_list, vsize_list):
-    #    i2w = []
-    #    with open(vfile, 'r', encoding='utf-8') as f:
-    #      for line in f:
-    #        w = line.strip()
-    #        if single_n and n and len(w) != n: continue
-    #        if not single_n and n and len(w) > n: continue 
-    #        if w == '<unk>' or w == '<pad>' or w == '<s>' or w == '<\s>': continue
-    #        i2w.append(w)
-    #        if size > 0 and len(i2w) > size: break 
-    #    i2w_sets.append(set(i2w))
-    #  i2w_set = set([])
-    #  for s in i2w_sets:
-    #    i2w_set = i2w_set | s
-    #  i2w = ['<unk>'] + list(i2w_set)
 
     w2i = {}
     for i, w in enumerate(i2w):
