@@ -324,7 +324,7 @@ class charEmbedder(nn.Module):
         #if self.hparams.d_char_vec is not None:
         #  emb = self.char_down_proj(emb)
         x_char_sent = torch.tanh(self.char_emb_proj(emb))
-        if self.hparams.residue:
+        if hasattr(self.hparams, "residue") and self.hparams.residue:
           x_char_sent_in = x_char_sent
           #print('residue')
         if self.hparams.sep_char_proj and not self.trg:
@@ -335,10 +335,10 @@ class charEmbedder(nn.Module):
           x_char_sent = torch.tanh(self.trg_proj(x_char_sent))
           #print('self.trg d_char_vec')
 
-        if self.hparams.residue:
+        if hasattr(self.hparams, "residue") and self.hparams.residue:
           x_char_sent = x_char_sent + x_char_sent_in
           #print('residue')
-        if self.hparams.layer_norm:
+        if hasattr(self.hparams, "layer_norm") and self.hparams.layer_norm:
           x_char_sent = self.layer_norm(x_char_sent)
           #print('layer norm')
         x_train_char[idx] = x_char_sent

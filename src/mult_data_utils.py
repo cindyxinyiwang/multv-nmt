@@ -37,6 +37,8 @@ class MultDataUtil(object):
         self.src_char_vocab_from = []
       if self.hparams.src_vocab_list:
         self.src_vocab_list = []
+      if self.hparams.sample_load:
+        self.sample_prob_list = []
       self.lans = []
       with open(self.hparams.lang_file, "r") as myfile:
         for line in myfile:
@@ -48,6 +50,8 @@ class MultDataUtil(object):
           self.train_trg_file_list.append(self.hparams.train_trg_file_list[0].replace("LAN", lan))
           if self.hparams.src_vocab_list:
             self.src_vocab_list.append(self.hparams.src_vocab_list[0].replace("LAN", lan))
+          if self.hparams.sample_load:
+            self.sample_prob_list.append(self.hparams.sample_prob_list.replace("LAN", lan))
         #if self.hparams.cons_vocab:
         #  if self.hparams.src_vocab_list:
         #    self.src_vocab_list = self.src_vocab_list[:2]
@@ -89,24 +93,24 @@ class MultDataUtil(object):
   def get_trg2srcs(self):
     trg2srcs = {}
     for data_idx in range(self.hparams.lan_size):
-      x_train, y_train, x_char_kv, x_len = self._build_parallel(self.train_src_file_list[data_idx], self.train_trg_file_list[data_idx], outprint=True)
+      x_train, y_train, x_char_kv, x_len = self._build_parallel(self.train_src_file_list[data_idx], self.train_trg_file_list[data_idx], data_idx, outprint=True)
       sim_file = "data/{}_eng/ted-train.mtok.{}.{}".format(self.lans[data_idx], self.lans[data_idx], self.hparams.sim)
       sim_score = []
       with open(sim_file) as myfile:
         for line in myfile:
+          if data_idx < 1:
+            sim_score.append(0)
+          else:
+            sim_score.append(float(line.strip()))
+
           #if data_idx <= 1:
           #  sim_score.append(3.0)
+          #elif data_idx == 2:
+          #  sim_score.append(0)
+          #elif data_idx == 3:
+          #  sim_score.append(2.0)
           #else:
-          #  sim_score.append(float(line.strip()))
-
-          if data_idx <= 1:
-            sim_score.append(3.0)
-          elif data_idx == 2:
-            sim_score.append(0)
-          elif data_idx == 3:
-            sim_score.append(2.0)
-          else:
-            sim_score.append(1.0)
+          #  sim_score.append(1.0)
 
           #sim_score.append(float(line.strip()))
       for i, y in enumerate(y_train):
@@ -252,10 +256,10 @@ class MultDataUtil(object):
       else:
         self.train_data_queue = [i for i in range(len(self.train_src_file_list))]
       for data_idx in self.train_data_queue:
-        x_train, y_train, x_char_kv, x_len = self._build_parallel(self.train_src_file_list[data_idx], self.train_trg_file_list[data_idx], outprint=(len(self.start_indices[data_idx]) == 0))
+        x_train, y_train, x_char_kv, x_len = self._build_parallel(self.train_src_file_list[data_idx], self.train_trg_file_list[data_idx], data_idx, outprint=(self.hparams.sample_load or len(self.start_indices[data_idx]) == 0))
         #x_train, y_train, x_char_kv, x_len = self._build_parallel(self.train_src_file_list[data_idx], self.train_trg_file_list[data_idx], outprint=True)
         # set batcher indices once
-        if not self.start_indices[data_idx]:
+        if not self.start_indices[data_idx] or self.hparams.sample_load:
           start_indices, end_indices = [], []
           if self.hparams.batcher == "word":
             start_index, end_index, count = 0, 0, 0
@@ -328,7 +332,7 @@ class MultDataUtil(object):
     first_dev = True
     while True:
       for data_idx in range(len(self.hparams.dev_src_file_list)):
-        x_dev, y_dev, x_char_kv, x_dev_len = self._build_parallel(self.hparams.dev_src_file_list[data_idx], self.hparams.dev_trg_file_list[data_idx], is_train=False, outprint=first_dev)
+        x_dev, y_dev, x_char_kv, x_dev_len = self._build_parallel(self.hparams.dev_src_file_list[data_idx], self.hparams.dev_trg_file_list[data_idx], data_idx, is_train=False, outprint=first_dev)
         first_dev = False
         start_index, end_index = 0, 0
         while end_index < len(x_dev_len):
@@ -362,7 +366,7 @@ class MultDataUtil(object):
   def next_test(self, test_batch_size=1):
     while True:
       for data_idx in range(len(self.hparams.test_src_file_list)):
-        x_test, y_test, x_char_kv, x_test_len = self._build_parallel(self.hparams.test_src_file_list[data_idx], self.hparams.test_trg_file_list[data_idx], is_train=False, outprint=True)
+        x_test, y_test, x_char_kv, x_test_len = self._build_parallel(self.hparams.test_src_file_list[data_idx], self.hparams.test_trg_file_list[data_idx], data_idx, is_train=False, outprint=True)
         start_index, end_index = 0, 0
         while end_index < len(x_test_len):
           end_index = min(start_index + test_batch_size, len(x_test_len))
@@ -485,13 +489,17 @@ class MultDataUtil(object):
     return count
 
 
-  def _build_parallel(self, src_file_name, trg_file_name, is_train=True, shuffle=True, outprint=False):
+  def _build_parallel(self, src_file_name, trg_file_name, data_idx, is_train=True, shuffle=True, outprint=False):
     if outprint:
       print("loading parallel sentences from {} {}".format(src_file_name, trg_file_name))
     with open(src_file_name, 'r', encoding='utf-8') as f:
       src_lines = f.read().split('\n')
     with open(trg_file_name, 'r', encoding='utf-8') as f:
       trg_lines = f.read().split('\n')
+    if is_train and not self.hparams.decode and self.hparams.sample_load:
+      f = self.sample_prob_list[data_idx]
+      probs = [float(i) for i in open(f, 'r').readlines()]
+
     src_char_kv_data = []
     src_data = []
     trg_data = []
@@ -501,17 +509,21 @@ class MultDataUtil(object):
     trg_unk_count = 0
 
     src_lens = []
-
+    line_n = -1
     for src_line, trg_line in zip(src_lines, trg_lines):
       src_tokens = src_line.split()
       trg_tokens = trg_line.split()
+      line_n += 1
       if is_train and not src_tokens or not trg_tokens: 
         skip_line_count += 1
         continue
       if is_train and not self.hparams.decode and self.hparams.max_len and len(src_tokens) > self.hparams.max_len and len(trg_tokens) > self.hparams.max_len:
         skip_line_count += 1
         continue
-      
+      if is_train and not self.hparams.decode and self.hparams.sample_load:
+        if not np.random.binomial(1, probs[line_n]):
+          skip_line_count += 1
+          continue
       src_lens.append(len(src_tokens))
       trg_indices = [self.hparams.bos_id] 
       if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:

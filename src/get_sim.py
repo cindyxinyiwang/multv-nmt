@@ -17,6 +17,43 @@ base_lan = "aze"
 lan_lists = ["aze", "tur", "rus", "por", "ces"]
 cuda = True
 
+def prob_by_classify():
+  trg2srcs = {}
+  out_probs = []
+  for i, lan in enumerate(lan_lists):
+    trg_file = "data/{}_eng/ted-train.mtok.spm8000.eng".format(lan)
+    trg_sents = open(trg_file, 'r').readlines()
+    sim_file = "data/{}_eng/ted-train.mtok.{}.{}".format(lan, lan, "sim-ngram_v1")
+    sim_score = []
+    with open(sim_file) as myfile:
+      for line in myfile:
+        if i < 1:
+          sim_score.append(20)
+          #sim_score.append(float(line.strip()))
+        else:
+          sim_score.append(float(line.strip()))
+    out_probs.append([0 for _ in range(len(trg_sents))])
+    line = 0
+    for trg, s in zip(trg_sents, sim_score):
+      if trg not in trg2srcs: trg2srcs[trg] = []
+      trg2srcs[trg].append([i, line, s])
+      line += 1
+  print("eng size: {}".format(len(trg2srcs)))
+  for trg, src_list in trg2srcs.items():
+    sum_score = 0
+    for s in src_list:
+      s[2] = np.exp(s[2])
+      sum_score += s[2]
+    for s in src_list:
+      s[2] = s[2] / sum_score
+      out_probs[s[0]][s[1]] = s[2]
+
+  for i, lan in enumerate(lan_lists):
+    out = open("data/{}_eng/ted-train.mtok.{}.prob-sim-ngram".format(lan, lan), "w")
+    for p in out_probs[i]:
+      out.write("{}\n".format(p))
+  #out = open("data/{}_eng/ted-train.mtok.{}.prob".format(base_lan, base_lan), "w")
+
 def sim_by_model(model_dir):
   model_file_name = os.path.join(model_dir, "model.pt")
   if not cuda:
@@ -99,6 +136,7 @@ def sim_by_ngram_v1(base_lan, lan_lists):
       out.write("{}\n".format(sim / len(words)))
 
 if __name__ == "__main__":
-  sim_by_ngram_v1(base_lan, lan_lists)
+  prob_by_classify()
+  #sim_by_ngram_v1(base_lan, lan_lists)
   #sim_by_ngram(base_lan, lan_lists)
   #sim_by_model("outputs_exp1/semb-8000_azetur_v2/")

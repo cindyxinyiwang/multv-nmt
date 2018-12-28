@@ -182,6 +182,8 @@ parser.add_argument("--sample_swap_p_max", type=float, default=1., help="selecte
 parser.add_argument("--sample_swap_p_min", type=float, default=0., help="selected data extension")
 parser.add_argument("--sample_swap_p_step", type=int, default=1., help="selected data extension")
 
+parser.add_argument("--sample_load", action="store_true", help="max layer to sep loc")
+parser.add_argument("--sample_prob_list", type=str, default="", help="selected data extension")
 args = parser.parse_args()
 
 if args.bpe_ngram: args.n = None
@@ -395,6 +397,8 @@ def train():
       sample_swap_p_max=args.sample_swap_p_max,
       sample_swap_p_min=args.sample_swap_p_min,
       sample_swap_p_step=args.sample_swap_p_step,
+      sample_load=args.sample_load,
+      sample_prob_list=args.sample_prob_list,
     )
   # build or load model
   print("-" * 80)

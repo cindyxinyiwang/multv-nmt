@@ -24,6 +24,7 @@ class ClassDataUtil(object):
 
     if self.hparams.lang_file:
       self.train_src_file_list = []
+      self.dev_src_file_list = []
       if self.hparams.src_char_vocab_from:
         self.src_char_vocab_from = []
       if self.hparams.src_vocab_list:
@@ -36,6 +37,7 @@ class ClassDataUtil(object):
           if self.hparams.src_char_vocab_from:
             self.src_char_vocab_from.append(self.hparams.src_char_vocab_from.replace("LAN", lan))
           self.train_src_file_list.append(self.hparams.train_src_file_list[0].replace("LAN", lan))
+          self.dev_src_file_list.append(self.hparams.dev_src_file_list[0].replace("LAN", lan))
           if self.hparams.src_vocab_list:
             self.src_vocab_list.append(self.hparams.src_vocab_list[0].replace("LAN", lan))
       self.hparams.lan_size = len(self.train_src_file_list)
@@ -76,7 +78,7 @@ class ClassDataUtil(object):
         while True:
           count += x_len[end_index]
           end_index += 1
-          if end_index >= len(x_len):
+          if end_index >= len(self.x_len):
             self.start_indices.append(start_index)
             self.end_indices.append(end_index)
             break
@@ -87,8 +89,8 @@ class ClassDataUtil(object):
             start_index = end_index
       elif self.hparams.batcher == "sent":
         start_index, end_index, count = 0, 0, 0
-        while end_index < len(x_len):
-          end_index = min(start_index + self.hparams.batch_size, len(x_len))
+        while end_index < len(self.x_len):
+          end_index = min(start_index + self.hparams.batch_size, len(self.x_len))
           self.start_indices.append(start_index)
           self.end_indices.append(end_index)
           start_index = end_index
@@ -147,8 +149,8 @@ class ClassDataUtil(object):
   def next_dev(self, dev_batch_size=1):
     first_dev = True
     while True:
-      for data_idx in range(len(self.hparams.dev_src_file_list)):
-        x_dev, y_dev, x_char_kv, x_dev_len = self._build_parallel(self.hparams.dev_src_file_list[data_idx], data_idx, is_train=False, outprint=first_dev)
+      for data_idx in range(len(self.dev_src_file_list)):
+        x_dev, y_dev, x_char_kv, x_dev_len = self._build_parallel(self.dev_src_file_list[data_idx], data_idx, is_train=False, outprint=first_dev)
         first_dev = False
         start_index, end_index = 0, 0
         while end_index < len(x_dev_len):
@@ -170,7 +172,7 @@ class ClassDataUtil(object):
             eof = True
           else:
             eof = False
-          if data_idx == len(self.hparams.dev_src_file_list)-1 and eof:
+          if data_idx == len(self.dev_src_file_list)-1 and eof:
             eop = True
           else:
             eop = False
@@ -181,7 +183,7 @@ class ClassDataUtil(object):
   def next_test(self, test_batch_size=1):
     while True:
       for data_idx in range(len(self.hparams.test_src_file_list)):
-        x_test, y_test, x_char_kv, x_test_len = self._build_parallel(self.hparams.test_src_file_list[data_idx], self.hparams.test_trg_file_list[data_idx], is_train=False, outprint=True)
+        x_test, y_test, x_char_kv, x_test_len = self._build_parallel(self.hparams.test_src_file_list[data_idx], self.hparams.test_file_idx_list[data_idx], is_train=False, outprint=True)
         start_index, end_index = 0, 0
         while end_index < len(x_test_len):
           end_index = min(start_index + test_batch_size, len(x_test_len))
@@ -197,7 +199,6 @@ class ClassDataUtil(object):
 
           # pad
           x, x_mask, x_count, x_len, x_pos_emb_idxs, x_char = self._pad(x, self.hparams.pad_id, x_char, self.hparams.src_char_vsize)
-          y, y_mask, y_count, y_len, y_pos_emb_idxs, y_char = self._pad(y, self.hparams.pad_id)
           batch_size = end_index - start_index
           if end_index == len(x_test_len):
             eof = True
@@ -208,7 +209,7 @@ class ClassDataUtil(object):
           else:
             eop = False
           start_index = end_index
-          yield x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, None, eop, eof, test_file_index
+          yield x, x_mask, x_count, x_len, x_pos_emb_idxs, y, batch_size, x_char, None, eop, eof, test_file_index
 
 
   def sort_by_xlen(self, data_list, descend=True):

@@ -66,12 +66,12 @@ parser.add_argument("--dev_trg_file", type=str, default=None, help="target valid
 parser.add_argument("--dev_ref_file_list", type=str, default=None, help="target valid file for reference")
 parser.add_argument("--dev_trg_ref", type=str, default=None, help="target valid file for reference")
 parser.add_argument("--dev_file_idx_list", type=str, default=None, help="target valid file for reference")
+parser.add_argument("--test_file_idx_list", type=str, default=None, help="target valid file for reference")
 parser.add_argument("--src_vocab_list", type=str, default=None, help="source vocab file")
 parser.add_argument("--trg_vocab_list", type=str, default=None, help="target vocab file")
 parser.add_argument("--test_src_file_list", type=str, default=None, help="source test file")
 parser.add_argument("--test_src_file", type=str, default=None, help="source test file")
 parser.add_argument("--test_trg_file_list", type=str, default=None, help="target test file")
-parser.add_argument("--test_file_idx_list", type=str, default=None, help="target valid file for reference")
 parser.add_argument("--test_trg_file", type=str, default=None, help="target test file")
 parser.add_argument("--src_char_vocab_from", type=str, default=None, help="source char vocab file")
 parser.add_argument("--src_char_vocab_size", type=str, default=None, help="source char vocab file")
@@ -84,12 +84,14 @@ parser.add_argument("--sep_char_proj", action="store_true", help="if eval at ste
 
 # multi data util options
 parser.add_argument("--lang_file", type=str, default=None, help="language code file")
+parser.add_argument("--test_lang_file", type=str, default=None, help="language code file")
 parser.add_argument("--src_vocab", type=str, default=None, help="source vocab file")
 parser.add_argument("--src_vocab_from", type=str, default=None, help="list of source vocab file")
 parser.add_argument("--trg_vocab", type=str, default=None, help="source vocab file")
 
 parser.add_argument("--batch_size", type=int, default=32, help="batch_size")
 parser.add_argument("--valid_batch_size", type=int, default=20, help="batch_size")
+parser.add_argument("--test_batch_size", type=int, default=20, help="batch_size")
 parser.add_argument("--batcher", type=str, default="sent", help="sent|word. Batch either by number of words or number of sentences")
 parser.add_argument("--n_train_steps", type=int, default=100000, help="n_train_steps")
 parser.add_argument("--n_train_epochs", type=int, default=0, help="n_train_epochs")
@@ -125,10 +127,21 @@ class CNNClassify(nn.Module):
                                    padding_idx=hparams.pad_id)
 
     self.conv_list = []
+    self.mask_conv_list = []
     for c, k in zip(self.hparams.out_c_list, self.hparams.k_list):
-      self.conv_list.append(nn.Conv1d(self.hparams.d_word_vec, out_channels=c, kernel_size=k, padding = k // 2))
+      #self.conv_list.append(nn.Conv1d(self.hparams.d_word_vec, out_channels=c, kernel_size=k, padding = k // 2))
+      self.conv_list.append(nn.Conv1d(self.hparams.d_word_vec, out_channels=c, kernel_size=k))
+      nn.init.uniform_(self.conv_list[-1].weight, -args.init_range, args.init_range)
+      self.mask_conv_list.append(nn.Conv1d(1, out_channels=c, kernel_size=k))
+      nn.init.constant_(self.mask_conv_list[-1].weight, 1.0)
+
     self.conv_list = nn.ModuleList(self.conv_list)
+    self.mask_conv_list = nn.ModuleList(self.mask_conv_list)
+    for param in self.mask_conv_list.parameters():
+      param.requires_grad = False
+
     self.project = nn.Linear(sum(self.hparams.out_c_list), self.hparams.trg_vocab_size, bias=False)
+    nn.init.uniform_(self.project.weight, -args.init_range, args.init_range)
     if self.hparams.cuda:
       self.conv_list = self.conv_list.cuda()
       self.project = self.project.cuda()
@@ -146,18 +159,69 @@ class CNNClassify(nn.Module):
       word_emb = word_emb
     else:
       word_emb = self.word_emb(x_train)
+
+    #x_mask = x_mask.unsqueeze(1).float()
     # [batch_size, d_word_vec, max_len]
     word_emb = word_emb.permute(0, 2, 1)
     conv_out = []
-    for conv in self.conv_list:
+    for conv, m_conv in zip(self.conv_list, self.mask_conv_list):
       # [batch_size, c_out, max_len]
       c = conv(word_emb)
+      #with torch.no_grad():
+      #  m = m_conv(x_mask)
+      #print(m_conv.weight)
+      #print(m)
+      #m = (m > 0)
+      #print(m)
+      #c.masked_fill_(m, -float("inf"))
       # [batch_size, c_out]
       c = c.max(dim=-1)
       conv_out.append(c[0])
     # [batch_size, trg_vocab_size]
     logits = self.project(torch.cat(conv_out, dim=-1))
     return logits
+
+def eval(model, data, crit, step, hparams):
+  print("Eval at step {0}. valid_batch_size={1}".format(step, args.valid_batch_size))
+  model.hparams.decode = True
+  valid_words = 0
+  valid_loss = 0
+  valid_acc = 0
+  n_batches = 0
+  total_acc, total_loss = 0, 0
+  valid_bleu = None
+  file_count = 0
+  for x, x_mask, x_count, x_len, x_pos_emb_idxs, y, batch_size, x_char, y_char, eop, eof, dev_file_index in data.next_dev(dev_batch_size=args.valid_batch_size):
+    # clear GPU memory
+    gc.collect()
+
+    # next batch
+    logits = model.forward(
+      x, x_mask, x_len, x_char, file_idx=dev_file_index, step=step)
+    logits = logits.view(-1, hparams.trg_vocab_size)
+    labels = Variable(torch.LongTensor(y))
+    if args.cuda: labels = labels.cuda()
+    val_loss = crit(logits, labels)
+    _, preds = torch.max(logits, dim=1)
+    val_acc = torch.eq(preds, labels).int().sum()
+    #print(labels)
+    n_batches += batch_size
+    valid_loss += val_loss.sum().item()
+    valid_acc += val_acc.item()
+    if eof:
+      print("val_step={0:<6d}".format(step))
+      print(" loss={0:<6.2f}".format(valid_loss / n_batches))
+      print(" acc={0:<5.4f}".format(valid_acc / n_batches))
+      total_loss += valid_loss
+      total_acc += valid_acc
+      valid_words = 0
+      valid_loss = 0
+      valid_acc = 0
+      n_batches = 0
+      file_count += 1
+    if eop:
+      break
+  return total_acc / file_count, total_loss
 
 def train():
   if args.load_model and (not args.reset_hparams):
@@ -190,7 +254,9 @@ def train():
       dev_trg_file_list=args.dev_trg_file_list,
       dev_ref_file_list=args.dev_ref_file_list,
       dev_file_idx_list=args.dev_file_idx_list,
+      test_src_file_list=args.test_src_file_list,
       lang_file=args.lang_file,
+      test_lang_file=args.test_lang_file,
       src_vocab=args.src_vocab,
       trg_vocab=args.trg_vocab,
       src_vocab_list=args.src_vocab_list,
@@ -247,16 +313,16 @@ def train():
     optim.load_state_dict(optimizer_state)
 
     extra_file_name = os.path.join(args.output_dir, "extra.pt")
-    step, best_val_ppl, best_val_bleu, cur_attempt, lr = torch.load(extra_file_name)
+    step, best_loss, best_acc, cur_attempt, lr = torch.load(extra_file_name)
   else:
     data = ClassDataUtil(hparams=hparams)
     model = CNNClassify(hparams)
     if args.cuda:
       model = model.cuda()
-    if args.init_type == "uniform":
-      print("initialize uniform with range {}".format(args.init_range))
-      for p in model.parameters():
-        p.data.uniform_(-args.init_range, args.init_range)
+    #if args.init_type == "uniform":
+    #  print("initialize uniform with range {}".format(args.init_range))
+    #  for p in model.parameters():
+    #    p.data.uniform_(-args.init_range, args.init_range)
     trainable_params = [
       p for p in model.parameters() if p.requires_grad]
     num_params = count_params(trainable_params)
@@ -264,8 +330,8 @@ def train():
 
     optim = torch.optim.Adam(trainable_params, lr=hparams.lr)
     step = 0
-    best_val_ppl = None
-    best_val_bleu = None
+    best_loss = None
+    best_acc = None
     cur_attempt = 0
     lr = hparams.lr
 
@@ -275,27 +341,33 @@ def train():
   print("-" * 80)
   print("start training...")
   start_time = log_start_time = time.time()
-  total_loss, total_batch = 0, 0
+  total_loss, total_batch, acc = 0, 0, 0
   model.train()
   epoch = 0
   for (x_train, x_mask, x_count, x_len, x_pos_emb_idxs, y_train, batch_size, x_train_char_sparse, y_train_char_sparse, eop, file_idx) in data.next_train():
     step += 1
+    #print(x_train)
+    #print(x_mask)
     logits = model.forward(x_train, x_mask, x_len, x_train_char_sparse, file_idx=file_idx, step=step)
     logits = logits.view(-1, hparams.trg_vocab_size)
     labels = Variable(torch.LongTensor(y_train))
     if args.cuda: labels = labels.cuda()
       
     tr_loss = crit(logits, labels)
+    _, preds = torch.max(logits, dim=1)
+    val_acc = torch.eq(preds, labels).int().sum()
+
+    acc += val_acc.item()
     tr_loss = tr_loss.sum()
     total_loss += tr_loss.item()
     total_batch += batch_size
 
     tr_loss.div_(batch_size)
-    model.backward()
+    tr_loss.backward()
     grad_norm = grad_clip(trainable_params, grad_bound=args.clip_grad)
     optim.step()
     optim.zero_grad()
-
+    if eop: epoch += 1
     if step % args.log_every == 0:
       curr_time = time.time()
       since_start = (curr_time - start_time) / 60.0
@@ -303,16 +375,32 @@ def train():
       log_string = "ep={0:<3d}".format(epoch)
       log_string += " steps={0:<6.2f}".format((step) / 1000)
       log_string += " lr={0:<9.7f}".format(lr)
-      log_string += " loss={0:<7.2f}".format(total_loss.item())
+      log_string += " loss={0:<7.2f}".format(total_loss)
+      log_string += " acc={0:<5.4f}".format(acc / total_batch)
       log_string += " |g|={0:<5.2f}".format(grad_norm)
 
 
       log_string += " wpm(k)={0:<5.2f}".format(total_batch / (1000 * elapsed))
       log_string += " time(min)={0:<5.2f}".format(since_start)
       print(log_string)
+      acc, total_loss, total_batch = 0, 0, 0
+      log_start_time = time.time()
 
-    #if step % args.eval_every == 0:
+    if step % args.eval_every == 0:
+      model.eval()
+      cur_acc, cur_loss = eval(model, data, crit, step, hparams)
+      if not best_acc or best_acc < cur_acc:
+        best_loss, best_acc = cur_loss, cur_acc
+        cur_attempt = 0
+        save_checkpoint([step, best_loss, best_acc, cur_attempt, lr], model, optim, hparams, args.output_dir)
+      else:
+        if args.lr_dec:
+          lr = lr * args.lr_dec
+          set_lr(optim, lr)
 
+        cur_attempt += 1
+        if args.patience and cur_attempt > args.patience: break
+      model.train()
 
 if __name__ == "__main__":
   if not args.decode:
@@ -337,3 +425,42 @@ if __name__ == "__main__":
     sys.stdout = Logger(log_file)
 
     train()
+  else:
+    hparams_file_name = os.path.join(args.output_dir, "hparams.pt")
+    hparams = torch.load(hparams_file_name)
+    hparams.decode = True
+    hparams.test_file_idx_list = [int(i) for i in args.test_file_idx_list.split(",")]
+    hparams.test_src_file_list = args.test_src_file_list.split()
+    hparams.test_lang_file = args.test_lang_file
+    prob_file_list = []
+    if hparams.test_lang_file:
+      test_src_file_list = []
+      with open(hparams.test_lang_file, "r") as myfile:
+        for line in myfile:
+          lan = line.strip()
+          test_src_file_list.append(hparams.test_src_file_list[0].replace("LAN", lan))
+          prob_file_list.append(hparams.test_src_file_list[0].replace("LAN", lan) + ".azelogp")
+      hparams.test_src_file_list = test_src_file_list
+
+    data = ClassDataUtil(hparams=hparams)
+    model_file_name = os.path.join(args.output_dir, "model.pt")
+    print("Loading model from '{0}'".format(model_file_name))
+    model = torch.load(model_file_name)
+
+    i = 0
+    cur_out = open(prob_file_list[i], "w")
+    for x, x_mask, x_count, x_len, x_pos_emb_idxs, y, batch_size, x_char, y_char, eop, eof, dev_file_index in data.next_test(test_batch_size=args.test_batch_size):
+      # clear GPU memory
+      gc.collect()
+
+      # next batch
+      logits = model.forward(
+        x, x_mask, x_len, x_char, file_idx=dev_file_index)
+      logits = logits.view(-1, hparams.trg_vocab_size)
+      prob = nn.functional.log_softmax(logits)
+      for p in prob:
+        cur_out.write("{}\n".format(p[0].item()))
+      if eop: break
+      if eof:
+        i += 1
+        cur_out = open(prob_file_list[i], "w")
