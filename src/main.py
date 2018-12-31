@@ -25,6 +25,7 @@ parser.add_argument("--id_init_sep", action="store_true", help="init identity ma
 parser.add_argument("--id_scale", type=float, default=0.01, help="[mlp|dot_prod|linear]")
 
 parser.add_argument("--semb", type=str, default=None, help="[mlp|dot_prod|linear]")
+parser.add_argument("--semb_num", type=int, default=1, help="number of categories for semb")
 parser.add_argument("--dec_semb", action="store_true", help="load an existing model")
 parser.add_argument("--query_base", action="store_true", help="load an existing model")
 parser.add_argument("--semb_vsize", type=int, default=None, help="how many steps to write log")
@@ -340,6 +341,7 @@ def train():
       src_char_only=args.src_char_only,
       trg_char_only=args.trg_char_only,
       semb=args.semb,
+      semb_num=args.semb_num,
       dec_semb=args.dec_semb,
       semb_vsize=args.semb_vsize,
       lan_code_rl=args.lan_code_rl,
@@ -507,10 +509,10 @@ def train():
   baseline_loss = None
   tr_loss, update_batch_size = None, 0
   s0_trainable_params = []
-  for (x_train, x_mask, x_count, x_len, x_pos_emb_idxs, y_train, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_train_char_sparse, y_train_char_sparse, eop, file_idx) in data.next_train():
+  for (x_train, x_mask, x_count, x_len, x_pos_emb_idxs, y_train, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_train_char_sparse, y_train_char_sparse, eop, file_idx, x_rank) in data.next_train():
     step += 1
     target_words += (y_count - batch_size)
-    logits = model.forward(x_train, x_mask, x_len, x_pos_emb_idxs, y_train[:,:-1], y_mask[:,:-1], y_len, y_pos_emb_idxs, x_train_char_sparse, y_train_char_sparse, file_idx=file_idx, step=step)
+    logits = model.forward(x_train, x_mask, x_len, x_pos_emb_idxs, y_train[:,:-1], y_mask[:,:-1], y_len, y_pos_emb_idxs, x_train_char_sparse, y_train_char_sparse, file_idx=file_idx, step=step, x_rank=x_rank)
     logits = logits.view(-1, hparams.trg_vocab_size)
     labels = y_train[:,1:].contiguous().view(-1)
       

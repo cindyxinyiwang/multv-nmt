@@ -102,6 +102,15 @@ class QueryEmb(nn.Module):
     self.dropout = nn.Dropout(hparams.dropout)
     if emb is None:
       self.emb_matrix = nn.Parameter(torch.ones(vocab_size, self.hparams.d_word_vec).uniform_(-self.hparams.init_range, self.hparams.init_range), requires_grad=True)
+      #if self.hparams.semb_num == 1:
+      #  self.emb_matrix = nn.Parameter(torch.ones(vocab_size, self.hparams.d_word_vec).uniform_(-self.hparams.init_range, self.hparams.init_range), requires_grad=True)
+      #else:
+      #  self.emb_matrix = []
+      #  for i in range(self.hparams.semb_num):
+      #    emb = nn.Parameter(torch.ones(vocab_size / self.hparams.semb_num, self.hparams.d_word_vec).uniform_(-self.hparams.init_range, self.hparams.init_range), requires_grad=True)
+      #    self.emb_matrix.append(emb)
+      #  self.emb_matrix = nn.ModuleList(self.emb_matrix)
+      if self.hparams.cuda: self.emb_matrix = self.emb_matrix.cuda()
     else:
       self.vocab_size = emb.size(0)
       self.emb_matrix = emb
@@ -120,7 +129,7 @@ class QueryEmb(nn.Module):
       self.char_gate = nn.Linear(self.hparams.d_word_vec*2, 1)
       if self.hparams.cuda: self.char_gate = self.char_gate.cuda()
  
-  def forward(self, q, file_idx=None):
+  def forward(self, q, file_idx=None, x_rank=None):
     """ 
     dot prodct attention: (q * k.T) * v
     Args:
@@ -148,8 +157,18 @@ class QueryEmb(nn.Module):
       batch_size, max_len, d_q = q.size()
       # [batch_size, max_len, vocab_size]
       attn_weight = torch.bmm(q, self.emb_matrix.transpose(0, 1).unsqueeze(0).expand(batch_size, -1, -1)) / self.temp
-      #if not attn_mask is None:
-      #  attn_weight.data.masked_fill_(attn_mask, -self.hparams.inf)
+      if self.hparams.semb_num > 1:
+        batch_size, max_len, vocab_size = attn_weight.size()
+        seg_vocab_size = vocab_size // self.hparams.semb_num
+        attn_mask = np.ones([batch_size * max_len, vocab_size])
+        x_rank = np.array(x_rank)
+        x_rank = x_rank.reshape(-1)
+        for i in range(self.hparams.semb_num):
+          attn_mask[x_rank == i, i*seg_vocab_size:(i+1)*seg_vocab_size] = 0
+        attn_mask = torch.ByteTensor(attn_mask)
+        attn_mask = attn_mask.view(batch_size, max_len, vocab_size)
+        if self.hparams.cuda: attn_mask = attn_mask.cuda()
+        attn_weight.data.masked_fill_(attn_mask, -np.inf)
       attn_weight = self.softmax(attn_weight)
       attn_weight = self.dropout(attn_weight)
       # [batch_size, max_len, d_emb_dim]
@@ -513,7 +532,7 @@ class sembEncoder(nn.Module):
       self.dropout = self.dropout.cuda()
       self.bridge = self.bridge.cuda()
 
-  def forward(self, x_train_char, x_len, file_idx=None):
+  def forward(self, x_train_char, x_len, file_idx=None, x_rank=None):
     """Performs a forward pass.
     Args:
       x_train: Torch Tensor of size [batch_size, max_len]
@@ -523,11 +542,10 @@ class sembEncoder(nn.Module):
     Returns:
       enc_output: Tensor of size [batch_size, max_len, d_model].
     """
-    
-    batch_size, max_len = len(x_train_char), len(x_train_char[0])
+    #batch_size, max_len = len(x_train_char), len(x_train_char[0])
 
     char_emb = self.char_emb(x_train_char, file_idx=file_idx)
-    word_emb = self.word_emb(char_emb, file_idx=file_idx)
+    word_emb = self.word_emb(char_emb, file_idx=file_idx, x_rank=x_rank)
     word_emb = self.dropout(word_emb).permute(1, 0, 2)
     #enc_output, (ht, ct) = self.layer(word_emb)
     packed_word_emb = pack_padded_sequence(word_emb, x_len)
@@ -762,10 +780,10 @@ class Seq2Seq(nn.Module):
     if self.hparams.cuda:
       self.enc_to_k = self.enc_to_k.cuda()
 
-  def forward(self, x_train, x_mask, x_len, x_pos_emb_idxs, y_train, y_mask, y_len, y_pos_emb_idxs, x_train_char_sparse=None, y_train_char_sparse=None, file_idx=None, step=None):
+  def forward(self, x_train, x_mask, x_len, x_pos_emb_idxs, y_train, y_mask, y_len, y_pos_emb_idxs, x_train_char_sparse=None, y_train_char_sparse=None, file_idx=None, step=None, x_rank=None):
     # [batch_size, x_len, d_model * 2]
     if self.hparams.semb:
-      x_enc, dec_init = self.encoder(x_train_char_sparse, x_len, file_idx=file_idx)
+      x_enc, dec_init = self.encoder(x_train_char_sparse, x_len, file_idx=file_idx, x_rank=x_rank)
     else:
       x_enc, dec_init = self.encoder(x_train, x_len, x_train_char_sparse, file_idx=file_idx)
     x_enc_k = self.enc_to_k(x_enc)
