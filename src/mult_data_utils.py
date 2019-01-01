@@ -82,6 +82,8 @@ class MultDataUtil(object):
       self.src_char_vsize = len(self.src_char_i2w)
       setattr(self.hparams, 'src_char_vsize', self.src_char_vsize)
       print("src_char_vsize={}".format(self.src_char_vsize))
+      #if self.hparams.compute_ngram:
+      #  self.
     else:
       self.src_char_vsize = None
       setattr(self.hparams, 'src_char_vsize', None)
@@ -341,7 +343,7 @@ class MultDataUtil(object):
     first_dev = True
     while True:
       for data_idx in range(len(self.hparams.dev_src_file_list)):
-        x_dev, y_dev, x_char_kv, x_dev_len, x_rank = self._build_parallel(self.hparams.dev_src_file_list[data_idx], self.hparams.dev_trg_file_list[data_idx], data_idx, is_train=False, outprint=first_dev)
+        x_dev, y_dev, x_char_kv, x_dev_len, x_dev_rank = self._build_parallel(self.hparams.dev_src_file_list[data_idx], self.hparams.dev_trg_file_list[data_idx], data_idx, is_train=False, outprint=first_dev)
         first_dev = False
         start_index, end_index = 0, 0
         while end_index < len(x_dev_len):
@@ -352,10 +354,11 @@ class MultDataUtil(object):
           if x_char_kv:
             x_char = x_char_kv[start_index:end_index]
           y = y_dev[start_index:end_index]
-          dev_file_index = [self.hparams.dev_file_idx_list[data_idx] for i in range(end_index - start_index)] 
+          dev_file_index = [self.hparams.dev_file_idx_list[data_idx] for i in range(end_index - start_index)]
+          if self.hparams.semb_num > 1:
+            x_rank = x_dev_rank[start_index:end_index]
           if self.shuffle:
-            x, y, x_char, dev_file_index = self.sort_by_xlen([x, y, x_char, dev_file_index])
-
+            x, y, x_char, dev_file_index, x_rank = self.sort_by_xlen([x, y, x_char, dev_file_index, x_rank])
           # pad
           x, x_mask, x_count, x_len, x_pos_emb_idxs, x_char, x_rank = self._pad(x, self.hparams.pad_id, x_char, self.hparams.src_char_vsize, x_rank)
           y, y_mask, y_count, y_len, y_pos_emb_idxs, y_char, y_rank = self._pad(y, self.hparams.pad_id)
@@ -567,7 +570,9 @@ class MultDataUtil(object):
         if self.hparams.semb_num > 1:
           if src_tok in cur_src_w2i:
             cur_idx = cur_src_w2i[src_tok]
-            rank = cur_idx // (len(cur_src_w2i) // self.hparams.semb_num)
+            #rank = cur_idx // (len(cur_src_w2i) // self.hparams.semb_num + 1)
+            rank = cur_idx // 5000
+            rank = rank % self.hparams.semb_num
           else:
             rank = self.hparams.semb_num - 1
           src_ranks.append(rank)
@@ -596,11 +601,11 @@ class MultDataUtil(object):
           print("processed {} lines".format(line_count))
 
     if is_train and shuffle:
-      src_data, trg_data, src_char_kv_data, src_ranks = self.sort_by_xlen([src_data, trg_data, src_char_kv_data, src_word_rank], descend=False)
+      src_data, trg_data, src_char_kv_data, src_word_rank = self.sort_by_xlen([src_data, trg_data, src_char_kv_data, src_word_rank], descend=False)
     if outprint:
       print("src_unk={}, trg_unk={}".format(src_unk_count, trg_unk_count))
       print("lines={}, skipped_lines={}".format(len(trg_data), skip_line_count))
-    return src_data, trg_data, src_char_kv_data, src_lens, src_ranks
+    return src_data, trg_data, src_char_kv_data, src_lens, src_word_rank
 
   def _build_char_vocab(self, lines, n=1):
     i2w = ['<pad>', '<unk>', '<s>', '<\s>']
@@ -707,7 +712,10 @@ class MultDataUtil(object):
       vsize_list.append(vsize_list[-1])
     #if self.hparams.ordered_char_dict:
     i2w = [ '<unk>']
-    i2w_set = set(i2w) 
+    i2w_set = set(i2w)
+    if self.hparams.ngram_compute:
+      i2w_base = ['<unk>']
+      i2w_four = []
     for vfile, size in zip(vfile_list, vsize_list):
       cur_vsize = 0
       with open(vfile, 'r', encoding='utf-8') as f:
@@ -718,9 +726,17 @@ class MultDataUtil(object):
           if w == '<unk>' or w == '<pad>' or w == '<s>' or w == '<\s>': continue
           cur_vsize += 1
           if w not in i2w_set:
-            i2w.append(w)
-            i2w_set.add(w)
+            if self.hparams.ngram_compute:
+              if len(w) == 4:
+                i2w_four.append(w)
+              else:
+                i2w_base.append(w)
+            else:
+              i2w.append(w)
+              i2w_set.add(w)
             if size > 0 and cur_vsize > size: break
+      if self.hparams.ngram_compute:
+        i2w = i
     #else:
     #  i2w_sets = []
     #  for vfile, size in zip(vfile_list, vsize_list):

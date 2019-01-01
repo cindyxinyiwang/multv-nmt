@@ -101,7 +101,15 @@ class QueryEmb(nn.Module):
     self.vocab_size = vocab_size
     self.dropout = nn.Dropout(hparams.dropout)
     if emb is None:
-      self.emb_matrix = nn.Parameter(torch.ones(vocab_size, self.hparams.d_word_vec).uniform_(-self.hparams.init_range, self.hparams.init_range), requires_grad=True)
+      if self.hparams.compute_ngram:
+        ones = torch.ones(vocab_size-1, self.hparams.d_word_vec).uniform_(-self.hparams.init_range, self.hparams.init_range)
+        if self.hparams.cuda: ones = ones.cuda()
+        self.emb_param = nn.Parameter(ones, requires_grad=True)
+        emb_matrix = self.emb_param[0] + self.emb_param[1]
+        self.emb_matrix = torch.cat([self.emb_param,emb_matrix.unsqueeze(0)], dim=0)
+        if self.hparams.cuda: self.emb_matrix = self.emb_matrix.cuda()
+      else:
+        self.emb_matrix = nn.Parameter(torch.ones(vocab_size, self.hparams.d_word_vec).uniform_(-self.hparams.init_range, self.hparams.init_range), requires_grad=True)
       #if self.hparams.semb_num == 1:
       #  self.emb_matrix = nn.Parameter(torch.ones(vocab_size, self.hparams.d_word_vec).uniform_(-self.hparams.init_range, self.hparams.init_range), requires_grad=True)
       #else:
@@ -110,7 +118,7 @@ class QueryEmb(nn.Module):
       #    emb = nn.Parameter(torch.ones(vocab_size / self.hparams.semb_num, self.hparams.d_word_vec).uniform_(-self.hparams.init_range, self.hparams.init_range), requires_grad=True)
       #    self.emb_matrix.append(emb)
       #  self.emb_matrix = nn.ModuleList(self.emb_matrix)
-      if self.hparams.cuda: self.emb_matrix = self.emb_matrix.cuda()
+      #if self.hparams.cuda: self.emb_matrix = self.emb_matrix.cuda()
     else:
       self.vocab_size = emb.size(0)
       self.emb_matrix = emb
@@ -168,9 +176,10 @@ class QueryEmb(nn.Module):
         attn_mask = torch.ByteTensor(attn_mask)
         attn_mask = attn_mask.view(batch_size, max_len, vocab_size)
         if self.hparams.cuda: attn_mask = attn_mask.cuda()
-        attn_weight.data.masked_fill_(attn_mask, -np.inf)
+        attn_weight.data.masked_fill_(attn_mask, -self.hparams.inf)
       attn_weight = self.softmax(attn_weight)
       attn_weight = self.dropout(attn_weight)
+      attn_weight.data.masked_fill_(attn_mask, 0)
       # [batch_size, max_len, d_emb_dim]
       ctx = torch.bmm(attn_weight, self.emb_matrix.unsqueeze(0).expand(batch_size, -1, -1))
     elif self.hparams.semb == 'linear':
@@ -279,11 +288,8 @@ class charEmbedder(nn.Module):
     self.trg = trg
     if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
       if self.hparams.d_char_vec is not None:
-        #self.char_down_proj = nn.Linear(char_vsize, self.hparams.d_char_vec, bias=False)
-        #self.char_emb_proj = nn.Linear(self.hparams.d_char_vec, self.hparams.d_word_vec, bias=False)
         self.char_emb_proj = nn.Linear(char_vsize, self.hparams.d_char_vec, bias=False)
         if self.hparams.cuda:
-          #self.char_down_proj = self.char_down_proj.cuda()
           self.char_emb_proj = self.char_emb_proj.cuda()
       else:
         #print("word_vec {}".format(char_vsize))
@@ -792,7 +798,7 @@ class Seq2Seq(nn.Module):
     logits = self.decoder(x_enc, x_enc_k, dec_init, x_mask, y_train, y_mask, y_train_char_sparse)
     return logits
 
-  def translate(self, x_train, x_mask, max_len=100, beam_size=5, poly_norm_m=0, x_train_char=None, y_train_char=None, file_idx=None, step=None):
+  def translate(self, x_train, x_mask, max_len=100, beam_size=5, poly_norm_m=0, x_train_char=None, y_train_char=None, file_idx=None, step=None, x_rank=None):
     hyps = []
     if x_train_char:
       batch_size = len(x_train_char)
@@ -811,14 +817,18 @@ class Seq2Seq(nn.Module):
         f = [file_idx[i]]
       else:
         f = None
-      hyp = self.translate_sent(x, mask, max_len=max_len, beam_size=beam_size, poly_norm_m=poly_norm_m, x_train_char=x_char, file_idx=f)[0]
+      if x_rank:
+        x_r = [x_rank[i]]
+      else:
+        x_r = None
+      hyp = self.translate_sent(x, mask, max_len=max_len, beam_size=beam_size, poly_norm_m=poly_norm_m, x_train_char=x_char, file_idx=f, x_rank=x_r)[0]
       hyps.append(hyp.y[1:-1])
     return hyps
 
-  def translate_sent(self, x_train, x_mask, max_len=100, beam_size=5, poly_norm_m=0, x_train_char=None, file_idx=None):
+  def translate_sent(self, x_train, x_mask, max_len=100, beam_size=5, poly_norm_m=0, x_train_char=None, file_idx=None, x_rank=None):
     if self.hparams.semb:
       x_len = [len(x_train_char[0])]
-      x_enc, dec_init = self.encoder(x_train_char, x_len, file_idx=file_idx)
+      x_enc, dec_init = self.encoder(x_train_char, x_len, file_idx=file_idx, x_rank=x_rank)
     else:
       x_len = [x_train.size(1)]
       x_enc, dec_init = self.encoder(x_train, x_len, x_train_char, file_idx=file_idx)
