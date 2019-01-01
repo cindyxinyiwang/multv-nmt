@@ -265,6 +265,7 @@ class charEmbedder(nn.Module):
     Returns:
     """
     if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
+      ret = []
       for idx, x_char_sent in enumerate(x_train_char):
         emb = Variable(x_char_sent.to_dense(), requires_grad=False)
         if self.hparams.cuda: emb = emb.cuda()
@@ -275,10 +276,9 @@ class charEmbedder(nn.Module):
         if self.hparams.sep_char_proj and not self.trg:
           assert file_idx is not None
           x_char_sent = torch.tanh(self.sep_proj_list[file_idx[idx]](x_char_sent))
-          #print('file idx{}'.format(file_idx[idx]))
-        x_train_char[idx] = x_char_sent
+        ret.append(x_char_sent)
       if not self.hparams.semb == 'mlp':
-        char_emb = torch.stack(x_train_char, dim=0)
+        char_emb = torch.stack(ret, dim=0)
       else:
         char_emb = x_train_char
     elif self.hparams.char_input == 'sum':

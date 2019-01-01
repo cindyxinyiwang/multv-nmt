@@ -343,11 +343,17 @@ class MultDataUtil(object):
       eop = False
     return x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, None, eop, eof, train_file_index, x_rank
 
-  def next_dev(self, dev_batch_size=1):
+  def next_dev(self, dev_batch_size=1, data_idx=0):
     first_dev = True
+    idxes = [0]
+    if data_idx != 0:
+      idxes.append(data_idx)
+    else:
+      idxes.append(1)
     while True:
-      for data_idx in range(len(self.hparams.dev_src_file_list)):
-        x_dev, y_dev, x_char_kv, x_dev_len, x_dev_rank = self._build_parallel(self.hparams.dev_src_file_list[data_idx], self.hparams.dev_trg_file_list[data_idx], data_idx, is_train=False, outprint=first_dev)
+      #for data_idx in range(len(self.hparams.dev_src_file_list)):
+      for data_idx in idxes:
+        x_dev, y_dev, x_char_kv, x_dev_len, x_dev_rank = self._build_parallel(self.hparams.dev_src_file_list[data_idx], self.hparams.dev_trg_file_list[data_idx], data_idx, is_train=False, outprint=True)
         first_dev = False
         start_index, end_index = 0, 0
         while end_index < len(x_dev_len):
@@ -361,6 +367,8 @@ class MultDataUtil(object):
           dev_file_index = [self.hparams.dev_file_idx_list[data_idx] for i in range(end_index - start_index)]
           if self.hparams.semb_num > 1:
             x_rank = x_dev_rank[start_index:end_index]
+          else:
+            x_rank = []
           if self.shuffle:
             x, y, x_char, dev_file_index, x_rank = self.sort_by_xlen([x, y, x_char, dev_file_index, x_rank])
           # pad
@@ -371,7 +379,7 @@ class MultDataUtil(object):
             eof = True
           else:
             eof = False
-          if data_idx == len(self.hparams.dev_src_file_list)-1 and eof:
+          if data_idx == idxes[-1] and eof:
             eop = True
           else:
             eop = False
@@ -575,7 +583,11 @@ class MultDataUtil(object):
           if src_tok in cur_src_w2i:
             cur_idx = cur_src_w2i[src_tok]
             #rank = cur_idx // (len(cur_src_w2i) // self.hparams.semb_num + 1)
-            rank = cur_idx // 5000
+            if data_idx < 0:
+              rank = cur_idx // 2500
+            else:
+              rank = cur_idx // 5000
+            rank = min(rank, self.hparams.semb_num-1)
             rank = rank % self.hparams.semb_num
           else:
             rank = self.hparams.semb_num - 1
@@ -600,6 +612,7 @@ class MultDataUtil(object):
         src_ranks.append(0)
         src_word_rank.append(src_ranks)
       line_count += 1
+      #if line_count == 20: break
       if outprint:
         if line_count % 10000 == 0:
           print("processed {} lines".format(line_count))

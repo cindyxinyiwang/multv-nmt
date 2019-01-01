@@ -192,7 +192,7 @@ args = parser.parse_args()
 
 if args.bpe_ngram: args.n = None
 
-def eval(model, data, crit, step, hparams, eval_bleu=False,
+def eval(model, data, crit, step, hparams, data_idx, eval_bleu=False,
          valid_batch_size=20, tr_logits=None):
   print("Eval at step {0}. valid_batch_size={1}".format(step, valid_batch_size))
   model.hparams.decode = True
@@ -204,7 +204,7 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
   total_ppl, total_bleu = 0, 0
   ppl_list, bleu_list = [], []
   valid_bleu = None
-  for x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, y_char, eop, eof, dev_file_index, x_rank in data.next_dev(dev_batch_size=valid_batch_size):
+  for x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, y_char, eop, eof, dev_file_index, x_rank in data.next_dev(dev_batch_size=valid_batch_size, data_idx=data_idx):
     # clear GPU memory
     gc.collect()
 
@@ -243,7 +243,7 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
     valid_hyp_file_list = [os.path.join(args.output_dir, "dev{}.trans_{}".format(i, step)) for i in hparams.dev_file_idx_list]
     out_file = open(valid_hyp_file_list[0], 'w', encoding='utf-8')
     dev_idx = 0
-    for x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, y_char, eop, eof, dev_file_index, x_rank in data.next_dev(dev_batch_size=1):
+    for x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, y_char, eop, eof, dev_file_index, x_rank in data.next_dev(dev_batch_size=1, data_idx=data_idx):
       if args.model_type == 'seq2seq':
         hs = model.translate(
                 x, x_mask, beam_size=args.beam_size, max_len=args.max_trans_len, poly_norm_m=args.poly_norm_m, x_train_char=x_char, y_train_char=y_char, file_idx=dev_file_index, step=step, x_rank=x_rank)
@@ -471,10 +471,10 @@ def train():
       p for p in model_q.parameters() if p.requires_grad]
     optim_q = torch.optim.Adam(trainable_params_q, lr=hparams.lr, weight_decay=hparams.l2_reg)
     step = 0
-    best_val_ppl = [None, None]
-    best_val_ppl_q = [None, None]
-    best_val_bleu = [None, None]
-    best_val_bleu_q = [None, None]
+    best_val_ppl = [None for _ in range(hparams.lan_size)]
+    best_val_ppl_q = [None for _ in range(hparams.lan_size)]
+    best_val_bleu = [None for _ in range(hparams.lan_size)]
+    best_val_bleu_q = [None for _ in range(hparams.lan_size)]
     cur_attempt = 0
     lr = hparams.lr
 
@@ -511,9 +511,10 @@ def train():
     
     if data_idx > 0:
       logits_q = model_q.forward(x_train, x_mask, x_len, x_pos_emb_idxs, y_train[:,:-1], y_mask[:,:-1], y_len, y_pos_emb_idxs, x_train_char_sparse, y_train_char_sparse, file_idx=file_idx, step=step, x_rank=x_rank)
+      logits_q = logits_q.view(-1, hparams.trg_vocab_size)
       cur_tr_loss_q, cur_tr_acc_q = get_performance(crit, logits_q, labels, hparams)
-      total_loss += cur_tr_loss.item()
-      total_corrects += cur_tr_acc.item()
+      total_loss_q += cur_tr_loss_q.item()
+      total_corrects_q += cur_tr_acc_q.item()
       if tr_loss_q is None:
         tr_loss_q = cur_tr_loss_q
       else:
@@ -562,15 +563,12 @@ def train():
         optim.step()
         optim.zero_grad()
         tr_loss = None
-        update_batch_size = 0
-      else:
-        new_lan_warm = False
       if data_idx > 0:
         tr_loss_q.div_(update_batch_size)
         tr_loss_q.backward()
-        grad_norm = torch.nn.utils.clip_grad_norm_(model_q.parameters(), args.clip_grad)
+        grad_norm_q = torch.nn.utils.clip_grad_norm_(model_q.parameters(), args.clip_grad)
         #grad_norm = grad_clip(trainable_params_q, grad_bound=args.clip_grad)
-        if np.isnan(grad_norm):
+        if np.isnan(grad_norm_q):
             print("WARNING: gradient is nan!, skipping batch")
             print("x:", x_train.data)
             print("y:", y_train.data)
@@ -579,7 +577,7 @@ def train():
         optim_q.step()
         optim_q.zero_grad()
         tr_loss_q = None
-        update_batch_size = 0
+      update_batch_size = 0
 
     # clean up GPU memory
     if step % args.clean_mem_every == 0:
@@ -590,63 +588,113 @@ def train():
       since_start = (curr_time - start_time) / 60.0
       elapsed = (curr_time - log_start_time) / 60.0
       log_string = "ep={0:<3d}".format(epoch)
-      log_string += " steps={0:<6.2f}".format((step / args.update_batch) / 1000)
-      log_string += " lr={0:<9.7f}".format(lr)
-      log_string += " loss={0:<7.2f}".format(cur_tr_loss.item())
-      log_string += " |g|={0:<5.2f}".format(grad_norm)
+      if new_lan_warm:
+        print("model_q...")
+        log_string += " steps={0:<6.2f}".format((step / args.update_batch) / 1000)
+        log_string += " lr={0:<9.7f}".format(lr)
+        log_string += " loss={0:<7.2f}".format(cur_tr_loss_q.item())
+        log_string += " |g|={0:<5.2f}".format(grad_norm_q)
 
-      log_string += " ppl={0:<8.2f}".format(np.exp(total_loss / target_words))
-      log_string += " acc={0:<5.4f}".format(total_corrects / target_words)
+        log_string += " ppl={0:<8.2f}".format(np.exp(total_loss_q / target_words))
+        log_string += " acc={0:<5.4f}".format(total_corrects_q / target_words)
 
-      log_string += " wpm(k)={0:<5.2f}".format(target_words / (1000 * elapsed))
-      log_string += " time(min)={0:<5.2f}".format(since_start)
-      print(log_string)
+        log_string += " wpm(k)={0:<5.2f}".format(target_words / (1000 * elapsed))
+        log_string += " time(min)={0:<5.2f}".format(since_start)
+        print(log_string)
+      else:
+        log_string += " steps={0:<6.2f}".format((step / args.update_batch) / 1000)
+        log_string += " lr={0:<9.7f}".format(lr)
+        log_string += " loss={0:<7.2f}".format(cur_tr_loss.item())
+        log_string += " |g|={0:<5.2f}".format(grad_norm)
+
+        log_string += " ppl={0:<8.2f}".format(np.exp(total_loss / target_words))
+        log_string += " acc={0:<5.4f}".format(total_corrects / target_words)
+
+        log_string += " wpm(k)={0:<5.2f}".format(target_words / (1000 * elapsed))
+        log_string += " time(min)={0:<5.2f}".format(since_start)
+        print(log_string)
+    eval_now = False 
     if args.eval_end_epoch:
       if eop:
         eval_now = True
       else:
         eval_now = False
-    elif (step / args.update_batch) % args.eval_every == 0:
+    if (step / args.update_batch) % args.eval_every == 0:
       eval_now = True
-    elif eof:
+    if eof:
       eval_now = True
-    else:
-      eval_now = False 
+    if new_lan_warm and (step / args.update_batch) % args.eval_every == 500:
+      eval_now = True
     if eval_now:
-      based_on_bleu = args.eval_bleu and best_val_ppl is not None and best_val_ppl <= args.ppl_thresh
+      based_on_bleu = args.eval_bleu and best_val_ppl[0] is not None and best_val_ppl[0] <= args.ppl_thresh
       with torch.no_grad():
-        val_ppl, val_bleu, ppl_list, bleu_list = eval(model, data, crit, step, hparams, eval_bleu=based_on_bleu, valid_batch_size=args.valid_batch_size, tr_logits=logits)	
-        val_ppl_q, val_bleu_q, ppl_list_q, bleu_list_q = eval(model_q, data, crit, step, hparams, eval_bleu=based_on_bleu, valid_batch_size=args.valid_batch_size, tr_logits=logits)	
+        val_ppl, val_bleu, ppl_list, bleu_list = eval(model, data, crit, step, hparams, data_idx, eval_bleu=based_on_bleu, valid_batch_size=args.valid_batch_size, tr_logits=logits)	
+        val_ppl_q, val_bleu_q, ppl_list_q, bleu_list_q = eval(model_q, data, crit, step, hparams, data_idx, eval_bleu=based_on_bleu, valid_batch_size=args.valid_batch_size, tr_logits=logits)	
       if based_on_bleu:
-        if best_val_bleu[0] is None or best_val_bleu[0] <= val_bleu:
+        if best_val_bleu[0] is None or best_val_bleu[0] <= bleu_list[0]:
           save_p = True 
           best_val_bleu[0] = val_bleu
           cur_attempt = 0
         else:
           save_p = False
           cur_attempt += 1
-      else:
-        if best_val_ppl[0] is None or best_val_ppl[0] >= val_ppl:
+        if best_val_bleu_q[data_idx] is None or best_val_bleu_q[data_idx] >= ppl_list_q[data_idx]:
+          best_val_bleu_q[data_idx] = val_ppl_q
+
+        if bleu_list_q[0] > best_val_bleu[0]:
+          print("update p_model with q_model..")
+          for p_p, p_q in zip(model.parameters(), model_q.parameters()):
+            p_p.data.copy_(p_q.data)
+          best_val_bleu[0] = bleu_list_q[0]
           save_p = True
-          best_val_ppl[0] = val_ppl
+          cur_attempt = 0
+        if bleu_list[1] > best_val_bleu_q[data_idx]:
+          print("update q_model with p_model..")
+          for p_p, p_q in zip(model.parameters(), model_q.parameters()):
+            p_q.data.copy_(p_p.data)
+          best_val_bleu_q[data_idx] = bleu_list[1]
+      else:
+        if best_val_ppl[0] is None or best_val_ppl[0] >= ppl_list[0]:
+          save_p = True
+          best_val_ppl[0] = ppl_list[0]
           cur_attempt = 0 
         else:
           save_p = False
           cur_attempt += 1
+        if best_val_ppl_q[data_idx] is None or best_val_ppl_q[data_idx] >= ppl_list_q[data_idx]:
+          best_val_ppl_q[data_idx] = ppl_list_q[data_idx]
+
         if ppl_list_q[0] < best_val_ppl[0]:
-          model.weight = model_q.weight
-        if ppl_list[1] < best_val_ppl_q[1]:
-          model_q.weight = model.weight
+          print(ppl_list_q[0], best_val_ppl[0])
+          print("update p_model with q_model..")
+          for p_p, p_q in zip(model.parameters(), model_q.parameters()):
+            p_p.data.copy_(p_q.data)
+          best_val_ppl[0] = ppl_list_q[0]
+          save_p = True
+          cur_attempt = 0 
+        if len(ppl_list) > 1 and ppl_list[1] < best_val_ppl_q[data_idx]:
+          print(ppl_list[1], best_val_ppl_q[data_idx])
+          print("update q_model with p_model..")
+          for p_p, p_q in zip(model.parameters(), model_q.parameters()):
+            p_q.data.copy_(p_p.data)
+          best_val_ppl_q[data_idx] = ppl_list[1]
+      if new_lan_warm: new_lan_warm = False
       if (not eop) and eof: new_lan_warm = True
       if save_p:
         save_checkpoint([step, best_val_ppl, best_val_bleu, cur_attempt, lr], model, optim, hparams, args.output_dir)
       elif not args.lr_schedule and step >= hparams.n_warm_ups:
-        lr = lr * args.lr_dec
-        set_lr(optim, lr)
-        set_lr(optim_q, lr)
+        if new_lan_warm and (step / args.update_batch) % 500 == 0:
+          pass
+        elif eof:
+          pass
+        else:
+          lr = lr * args.lr_dec
+          set_lr(optim, lr)
+          set_lr(optim_q, lr)
       # reset counter after eval
       log_start_time = time.time()
       target_words = total_corrects = total_loss = 0
+      total_loss_q, total_corrects_q = 0, 0
       target_rules = target_total = target_eos = 0
       total_word_loss = total_rule_loss = total_eos_loss = 0
     if args.patience >= 0:

@@ -23,13 +23,15 @@ def get_criterion(hparams):
   return crit
 
 def get_performance(crit, logits, labels, hparams, sum_loss=True, logits_q=None, batch_size=None):
-  if logits_q:
+  if logits_q is not None:
     _, trg_vocab_size = logits.size()
     loss_p = crit(logits, labels).view(batch_size, -1).sum(-1)
     loss_q = crit(logits_q, labels).view(batch_size, -1).sum(-1)
-    weight = torch.exp(loss_p - loss_q)
-    print(weight)
-    loss = loss_p.view(batch_size, -1) * weight
+    weight = torch.exp(loss_p.data - loss_q.data)
+    ones = torch.FloatTensor([1]).expand_as(weight)
+    if hparams.cuda: ones = ones.cuda()
+    weight = torch.min(weight, ones)
+    loss = loss_p.view(batch_size, -1) * weight.unsqueeze(1)
     loss = loss.view(-1) 
   else:
     loss = crit(logits, labels)
