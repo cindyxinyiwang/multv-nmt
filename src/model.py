@@ -101,15 +101,7 @@ class QueryEmb(nn.Module):
     self.vocab_size = vocab_size
     self.dropout = nn.Dropout(hparams.dropout)
     if emb is None:
-      if self.hparams.compute_ngram:
-        ones = torch.ones(vocab_size-1, self.hparams.d_word_vec).uniform_(-self.hparams.init_range, self.hparams.init_range)
-        if self.hparams.cuda: ones = ones.cuda()
-        self.emb_param = nn.Parameter(ones, requires_grad=True)
-        emb_matrix = self.emb_param[0] + self.emb_param[1]
-        self.emb_matrix = torch.cat([self.emb_param,emb_matrix.unsqueeze(0)], dim=0)
-        if self.hparams.cuda: self.emb_matrix = self.emb_matrix.cuda()
-      else:
-        self.emb_matrix = nn.Parameter(torch.ones(vocab_size, self.hparams.d_word_vec).uniform_(-self.hparams.init_range, self.hparams.init_range), requires_grad=True)
+      self.emb_matrix = nn.Parameter(torch.ones(vocab_size, self.hparams.d_word_vec).uniform_(-self.hparams.init_range, self.hparams.init_range), requires_grad=True)
       #if self.hparams.semb_num == 1:
       #  self.emb_matrix = nn.Parameter(torch.ones(vocab_size, self.hparams.d_word_vec).uniform_(-self.hparams.init_range, self.hparams.init_range), requires_grad=True)
       #else:
@@ -179,7 +171,8 @@ class QueryEmb(nn.Module):
         attn_weight.data.masked_fill_(attn_mask, -self.hparams.inf)
       attn_weight = self.softmax(attn_weight)
       attn_weight = self.dropout(attn_weight)
-      attn_weight.data.masked_fill_(attn_mask, 0)
+      if self.hparams.semb_num > 1:
+        attn_weight.data.masked_fill_(attn_mask, 0)
       # [batch_size, max_len, d_emb_dim]
       ctx = torch.bmm(attn_weight, self.emb_matrix.unsqueeze(0).expand(batch_size, -1, -1))
     elif self.hparams.semb == 'linear':
@@ -201,85 +194,6 @@ class QueryEmb(nn.Module):
         ctx = ctx + q
     return ctx
 
-class MultiHeadAttn(nn.Module):
-  def __init__(self, hparams):
-    super(MultiHeadAttn, self).__init__()
-
-    self.hparams = hparams
-
-    self.attention = DotProdAttn(hparams)
-    self.layer_norm = LayerNormalization(hparams.d_model)
-
-    # projection of concatenated attn
-    n_heads = self.hparams.n_heads
-    d_model = self.hparams.d_model
-    d_q = self.hparams.d_k
-    d_k = self.hparams.d_k
-    d_v = self.hparams.d_v
-
-    Q, K, V = [], [], []
-    for head_id in range(n_heads):
-      q = nn.Linear(d_model, d_q, bias=False)
-      k = nn.Linear(d_model, d_k, bias=False)
-      v = nn.Linear(d_model, d_v, bias=False)
-      init_param(q.weight, init_type="uniform", init_range=hparams.init_range)
-      init_param(k.weight, init_type="uniform", init_range=hparams.init_range)
-      init_param(v.weight, init_type="uniform", init_range=hparams.init_range)
-      Q.append(q)
-      K.append(k)
-      V.append(v)
-    self.Q = nn.ModuleList(Q)
-    self.K = nn.ModuleList(K)
-    self.V = nn.ModuleList(V)
-    if self.hparams.cuda:
-      self.Q = self.Q.cuda()
-      self.K = self.K.cuda()
-      self.V = self.V.cuda()
-
-    self.w_proj = nn.Linear(n_heads * d_v, d_model, bias=False)
-    init_param(self.w_proj.weight, init_type="uniform", init_range=hparams.init_range)
-    if self.hparams.cuda:
-      self.w_proj = self.w_proj.cuda()
-
-  def forward(self, q, k, v, attn_mask=None):
-    """Performs the following computations:
-         head[i] = Attention(q * w_q[i], k * w_k[i], v * w_v[i])
-         outputs = concat(all head[i]) * self.w_proj
-    Args:
-      q: [batch_size, len_q, d_q].
-      k: [batch_size, len_k, d_k].
-      v: [batch_size, len_v, d_v].
-    Must have: len_k == len_v
-    Note: This batch_size is in general NOT the training batch_size, as
-      both sentences and time steps are batched together for efficiency.
-    Returns:
-      outputs: [batch_size, len_q, d_model].
-    """
-
-    residual = q 
-
-    n_heads = self.hparams.n_heads
-    d_model = self.hparams.d_model
-    d_q = self.hparams.d_k
-    d_k = self.hparams.d_k
-    d_v = self.hparams.d_v
-    batch_size = q.size(0)
-
-    heads = []
-    for Q, K, V in zip(self.Q, self.K, self.V):
-      head_q, head_k, head_v = Q(q), K(k), V(v)
-      head = self.attention(head_q, head_k, head_v, attn_mask=attn_mask)
-      heads.append(head)
-
-    outputs = torch.cat(heads, dim=-1).contiguous().view(batch_size, n_heads * d_v)
-    outputs = self.w_proj(outputs)
-    if not hasattr(self.hparams, "residue") or self.hparams.residue == 1:
-      outputs = outputs + residual
-    if not hasattr(self.hparams, "layer_norm") or self.hparams.layer_norm == 1: 
-      outputs = self.layer_norm(outputs)
-
-    return outputs
-
 class charEmbedder(nn.Module):
   def __init__(self, hparams, char_vsize, trg=False, *args, **kwargs):
     super(charEmbedder, self).__init__()
@@ -293,9 +207,17 @@ class charEmbedder(nn.Module):
           self.char_emb_proj = self.char_emb_proj.cuda()
       else:
         #print("word_vec {}".format(char_vsize))
-        self.char_emb_proj = nn.Linear(char_vsize, self.hparams.d_word_vec, bias=False)
-        if self.hparams.cuda:
-          self.char_emb_proj = self.char_emb_proj.cuda()
+        if self.hparams.compute_ngram:
+          ones = torch.ones(len(self.i2w_base), self.hparams.d_word_vec).uniform_(-self.hparams.init_range, self.hparams.init_range)
+          if self.hparams.cuda: ones = ones.cuda()
+          self.emb_param = nn.Parameter(ones, requires_grad=True)
+          emb_matrix = self.emb_param[0] + self.emb_param[1]
+          self.emb_matrix = torch.cat([self.emb_param,emb_matrix.unsqueeze(0)], dim=0)
+          if self.hparams.cuda: self.emb_matrix = self.emb_matrix.cuda()
+        else:
+          self.char_emb_proj = nn.Linear(char_vsize, self.hparams.d_word_vec, bias=False)
+          if self.hparams.cuda:
+            self.char_emb_proj = self.char_emb_proj.cuda()
     elif self.hparams.char_input:
       self.char_emb = nn.Embedding(char_vsize, self.hparams.d_char_vec, padding_idx=hparams.pad_id)
       if self.hparams.cuda:
@@ -349,23 +271,11 @@ class charEmbedder(nn.Module):
         #if self.hparams.d_char_vec is not None:
         #  emb = self.char_down_proj(emb)
         x_char_sent = torch.tanh(self.char_emb_proj(emb))
-        if hasattr(self.hparams, "residue") and self.hparams.residue:
-          x_char_sent_in = x_char_sent
-          #print('residue')
+
         if self.hparams.sep_char_proj and not self.trg:
           assert file_idx is not None
           x_char_sent = torch.tanh(self.sep_proj_list[file_idx[idx]](x_char_sent))
           #print('file idx{}'.format(file_idx[idx]))
-        elif self.trg and self.hparams.d_char_vec:
-          x_char_sent = torch.tanh(self.trg_proj(x_char_sent))
-          #print('self.trg d_char_vec')
-
-        if hasattr(self.hparams, "residue") and self.hparams.residue:
-          x_char_sent = x_char_sent + x_char_sent_in
-          #print('residue')
-        if hasattr(self.hparams, "layer_norm") and self.hparams.layer_norm:
-          x_char_sent = self.layer_norm(x_char_sent)
-          #print('layer norm')
         x_train_char[idx] = x_char_sent
       if not self.hparams.semb == 'mlp':
         char_emb = torch.stack(x_train_char, dim=0)

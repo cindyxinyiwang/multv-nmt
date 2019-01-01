@@ -6,7 +6,6 @@ import gc
 import random
 import subprocess
 import re
-import copy
 
 import torch
 import torch.nn as nn
@@ -438,6 +437,12 @@ def train():
       model_name = os.path.join(args.pretrained_model, "model.pt")
       print("Loading model from '{0}'".format(model_name))
       model = torch.load(model_name)
+      #if not hasattr(model, 'data'):
+      #  model.data = data
+      #if not hasattr(model, 'char_ngram_n'):
+      #  model.hparams.char_ngram_n = 0
+      #if not hasattr(model, 'char_input'):
+      #  model.hparams.char_input = None
       print("load hparams..")
       hparams_file_name = os.path.join(args.pretrained_model, "hparams.pt")
       reload_hparams = torch.load(hparams_file_name)
@@ -446,6 +451,16 @@ def train():
       reload_hparams.dropout = hparams.dropout
       reload_hparams.lr_dec = hparams.lr_dec
       hparams = reload_hparams
+      #hparams.src_vocab_list = reload_hparams.src_vocab_list 
+      #hparams.src_vocab_size = reload_hparams.src_vocab_size 
+      #hparams.trg_vocab_list = reload_hparams.trg_vocab_list 
+      #hparams.trg_vocab_size = reload_hparams.trg_vocab_size 
+      #hparams.src_char_vocab_from = reload_hparams.src_char_vocab_from 
+      #hparams.src_char_vocab_size = reload_hparams.src_char_vocab_size 
+      #hparams.trg_char_vocab_from = reload_hparams.trg_char_vocab_from 
+      #hparams.trg_char_vocab_size = reload_hparams.trg_char_vocab_size
+      #print(reload_hparams.src_char_vocab_from)
+      #print(reload_hparams.src_char_vocab_size)
       data = MultDataUtil(hparams=hparams)
       model.data = data
     else:
@@ -461,26 +476,17 @@ def train():
         print("initialize uniform with range {}".format(args.init_range))
         for p in model.parameters():
           p.data.uniform_(-args.init_range, args.init_range)
-
     trainable_params = [
       p for p in model.parameters() if p.requires_grad]
     optim = torch.optim.Adam(trainable_params, lr=hparams.lr, weight_decay=hparams.l2_reg)
-    
-    model_q = copy.deepcopy(model)
-    trainable_params_q = [
-      p for p in model_q.parameters() if p.requires_grad]
-    optim_q = torch.optim.Adam(trainable_params_q, lr=hparams.lr, weight_decay=hparams.l2_reg)
     step = 0
-    best_val_ppl = [None, None]
-    best_val_ppl_q = [None, None]
-    best_val_bleu = [None, None]
-    best_val_bleu_q = [None, None]
+    best_val_ppl = None
+    best_val_bleu = None
     cur_attempt = 0
     lr = hparams.lr
 
   if args.cuda:
     model = model.cuda()
-    model_q = model_q.cuda()
 
   if args.reset_hparams:
     lr = args.lr
@@ -494,44 +500,27 @@ def train():
   print("start training...")
   start_time = log_start_time = time.time()
   target_words, total_loss, total_corrects = 0, 0, 0
-  total_loss_q, total_corrects_q = 0, 0
   model.train()
   epoch = 0
-  tr_loss, tr_loss_q, update_batch_size = None, 0, 0
-  new_lan_warm = False
-  for (x_train, x_mask, x_count, x_len, x_pos_emb_idxs, y_train, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_train_char_sparse, y_train_char_sparse, eop, eof, file_idx, x_rank) in data.next_train():
+  tr_loss, update_batch_size = None, 0
+  for (x_train, x_mask, x_count, x_len, x_pos_emb_idxs, y_train, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_train_char_sparse, y_train_char_sparse, eop, file_idx, x_rank) in data.next_train():
     step += 1
     target_words += (y_count - batch_size)
-    data_idx = file_idx[0]
-
+    logits = model.forward(x_train, x_mask, x_len, x_pos_emb_idxs, y_train[:,:-1], y_mask[:,:-1], y_len, y_pos_emb_idxs, x_train_char_sparse, y_train_char_sparse, file_idx=file_idx, step=step, x_rank=x_rank)
+    logits = logits.view(-1, hparams.trg_vocab_size)
     labels = y_train[:,1:].contiguous().view(-1)
-    if not new_lan_warm:
-      logits = model.forward(x_train, x_mask, x_len, x_pos_emb_idxs, y_train[:,:-1], y_mask[:,:-1], y_len, y_pos_emb_idxs, x_train_char_sparse, y_train_char_sparse, file_idx=file_idx, step=step, x_rank=x_rank)
-      logits = logits.view(-1, hparams.trg_vocab_size)
     
-    if data_idx > 0:
-      logits_q = model_q.forward(x_train, x_mask, x_len, x_pos_emb_idxs, y_train[:,:-1], y_mask[:,:-1], y_len, y_pos_emb_idxs, x_train_char_sparse, y_train_char_sparse, file_idx=file_idx, step=step, x_rank=x_rank)
-      cur_tr_loss_q, cur_tr_acc_q = get_performance(crit, logits_q, labels, hparams)
-      total_loss += cur_tr_loss.item()
-      total_corrects += cur_tr_acc.item()
-      if tr_loss_q is None:
-        tr_loss_q = cur_tr_loss_q
-      else:
-        tr_loss_q = tr_loss_q + cur_tr_loss_q
-    else:
-      logits_q = None
+    cur_tr_loss, cur_tr_acc = get_performance(crit, logits, labels, hparams, logits_q=logits_q)
+    total_loss += cur_tr_loss.item()
+    total_corrects += cur_tr_acc.item()
 
-    if not new_lan_warm:
-      cur_tr_loss, cur_tr_acc = get_performance(crit, logits, labels, hparams, logits_q=logits_q, batch_size=batch_size)
-      total_loss += cur_tr_loss.item()
-      total_corrects += cur_tr_acc.item()
-      if tr_loss is None:
-        tr_loss = cur_tr_loss
-      else:
-        tr_loss = tr_loss + cur_tr_loss
+    if tr_loss is None:
+      tr_loss = cur_tr_loss
+    else:
+      tr_loss = tr_loss + cur_tr_loss
     update_batch_size += batch_size
 
-    if step % args.update_batch == 0 or eof:
+    if step % args.update_batch == 0:
       # set learning rate
       if args.lr_schedule:
         s = step / args.update_batch + 1
@@ -548,39 +537,20 @@ def train():
         lr = args.lr_min + 0.5*(args.lr_max-args.lr_min)*(1+np.cos(s*np.pi/args.lr_dec_steps))
         set_lr(optim, lr)
       
-      if not new_lan_warm:
-        tr_loss.div_(update_batch_size)
-        tr_loss.backward()
-        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad)
-        #grad_norm = grad_clip(trainable_params, grad_bound=args.clip_grad)
-        if np.isnan(grad_norm):
-            print("WARNING: gradient is nan!, skipping batch")
-            print("x:", x_train.data)
-            print("y:", y_train.data)
-            print("logits:", logits.data)
-            exit(0)
-        optim.step()
-        optim.zero_grad()
-        tr_loss = None
-        update_batch_size = 0
-      else:
-        new_lan_warm = False
-      if data_idx > 0:
-        tr_loss_q.div_(update_batch_size)
-        tr_loss_q.backward()
-        grad_norm = torch.nn.utils.clip_grad_norm_(model_q.parameters(), args.clip_grad)
-        #grad_norm = grad_clip(trainable_params_q, grad_bound=args.clip_grad)
-        if np.isnan(grad_norm):
-            print("WARNING: gradient is nan!, skipping batch")
-            print("x:", x_train.data)
-            print("y:", y_train.data)
-            print("logits:", logits.data)
-            exit(0)
-        optim_q.step()
-        optim_q.zero_grad()
-        tr_loss_q = None
-        update_batch_size = 0
-
+      tr_loss.div_(update_batch_size)
+      tr_loss.backward()
+      grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad)
+      #grad_norm = grad_clip(trainable_params, grad_bound=args.clip_grad)
+      if np.isnan(grad_norm):
+          print("WARNING: gradient is nan!, skipping batch")
+          print("x:", x_train.data)
+          print("y:", y_train.data)
+          print("logits:", logits.data)
+          exit(0)
+      optim.step()
+      optim.zero_grad()
+      tr_loss = None
+      update_batch_size = 0
     # clean up GPU memory
     if step % args.clean_mem_every == 0:
       gc.collect()
@@ -608,15 +578,12 @@ def train():
         eval_now = False
     elif (step / args.update_batch) % args.eval_every == 0:
       eval_now = True
-    elif eof:
-      eval_now = True
     else:
       eval_now = False 
     if eval_now:
       based_on_bleu = args.eval_bleu and best_val_ppl is not None and best_val_ppl <= args.ppl_thresh
       with torch.no_grad():
         val_ppl, val_bleu, ppl_list, bleu_list = eval(model, data, crit, step, hparams, eval_bleu=based_on_bleu, valid_batch_size=args.valid_batch_size, tr_logits=logits)	
-        val_ppl_q, val_bleu_q, ppl_list_q, bleu_list_q = eval(model_q, data, crit, step, hparams, eval_bleu=based_on_bleu, valid_batch_size=args.valid_batch_size, tr_logits=logits)	
       if based_on_bleu:
         if best_val_bleu[0] is None or best_val_bleu[0] <= val_bleu:
           save_p = True 
@@ -625,25 +592,30 @@ def train():
         else:
           save_p = False
           cur_attempt += 1
+      	if best_val_bleu[1] is None or best_val_bleu[1] >= bleu_list[1]:
+          save_q = True
+          best_val_bleu[1] = bleu_list[1]
+      	else:
+          save_q = False
       else:
-        if best_val_ppl[0] is None or best_val_ppl[0] >= val_ppl:
+      	if best_val_ppl[0] is None or best_val_ppl[0] >= val_ppl:
           save_p = True
           best_val_ppl[0] = val_ppl
           cur_attempt = 0 
-        else:
+      	else:
           save_p = False
           cur_attempt += 1
-        if ppl_list_q[0] < best_val_ppl[0]:
-          model.weight = model_q.weight
-        if ppl_list[1] < best_val_ppl_q[1]:
-          model_q.weight = model.weight
-      if (not eop) and eof: new_lan_warm = True
+      	if best_val_ppl[1] is None or best_val_ppl[1] >= ppl_list[1]:
+          save_q = True
+          best_val_ppl[1] = ppl_list[1]
+      	else:
+          save_q = False
+
       if save_p:
         save_checkpoint([step, best_val_ppl, best_val_bleu, cur_attempt, lr], model, optim, hparams, args.output_dir)
       elif not args.lr_schedule and step >= hparams.n_warm_ups:
         lr = lr * args.lr_dec
         set_lr(optim, lr)
-        set_lr(optim_q, lr)
       # reset counter after eval
       log_start_time = time.time()
       target_words = total_corrects = total_loss = 0

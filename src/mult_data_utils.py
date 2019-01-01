@@ -333,11 +333,15 @@ class MultDataUtil(object):
     x, x_mask, x_count, x_len, x_pos_emb_idxs, x_char, x_rank = self._pad(x, self.hparams.pad_id, x_char, self.hparams.src_char_vsize, x_rank)
     y, y_mask, y_count, y_len, y_pos_emb_idxs, y_char, y_rank = self._pad(y, self.hparams.pad_id)
     batch_size = end_index - start_index
+    if step == len(self.start_indices[data_idx])-1:
+      eof = True
+    else:
+      eof = False
     if data_idx == self.train_data_queue[-1] and step == len(self.start_indices[data_idx])-1:
       eop = True
     else:
       eop = False
-    return x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, None, eop, train_file_index, x_rank
+    return x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, None, eop, eof, train_file_index, x_rank
 
   def next_dev(self, dev_batch_size=1):
     first_dev = True
@@ -713,7 +717,7 @@ class MultDataUtil(object):
     #if self.hparams.ordered_char_dict:
     i2w = [ '<unk>']
     i2w_set = set(i2w)
-    if self.hparams.ngram_compute:
+    if self.hparams.compute_ngram:
       i2w_base = ['<unk>']
       i2w_four = []
     for vfile, size in zip(vfile_list, vsize_list):
@@ -726,7 +730,7 @@ class MultDataUtil(object):
           if w == '<unk>' or w == '<pad>' or w == '<s>' or w == '<\s>': continue
           cur_vsize += 1
           if w not in i2w_set:
-            if self.hparams.ngram_compute:
+            if self.hparams.compute_ngram:
               if len(w) == 4:
                 i2w_four.append(w)
               else:
@@ -735,26 +739,16 @@ class MultDataUtil(object):
               i2w.append(w)
               i2w_set.add(w)
             if size > 0 and cur_vsize > size: break
-      if self.hparams.ngram_compute:
-        i2w = i
-    #else:
-    #  i2w_sets = []
-    #  for vfile, size in zip(vfile_list, vsize_list):
-    #    i2w = []
-    #    with open(vfile, 'r', encoding='utf-8') as f:
-    #      for line in f:
-    #        w = line.strip()
-    #        if single_n and n and len(w) != n: continue
-    #        if not single_n and n and len(w) > n: continue 
-    #        if w == '<unk>' or w == '<pad>' or w == '<s>' or w == '<\s>': continue
-    #        i2w.append(w)
-    #        if size > 0 and len(i2w) > size: break 
-    #    i2w_sets.append(set(i2w))
-    #  i2w_set = set([])
-    #  for s in i2w_sets:
-    #    i2w_set = i2w_set | s
-    #  i2w = ['<unk>'] + list(i2w_set)
-
+    if self.hparams.compute_ngram:
+      i2w = i2w_base + i2w_four
+      self.i2w_base = i2w_base
+      self.i2w_four = i2w_four
+      self.w2i_base = {}
+      for i, w in enumerate(i2w_base):
+        self.w2i_base[w] = i
+      self.w2i_four = {}
+      for i, w in enumerate(i2w_four):
+        self.w2i_four[w] = i
     w2i = {}
     for i, w in enumerate(i2w):
       w2i[w] = i
