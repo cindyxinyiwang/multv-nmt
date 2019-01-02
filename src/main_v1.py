@@ -175,7 +175,6 @@ parser.add_argument("--cons_vocab", action="store_true", help="max layer to sep 
 parser.add_argument("--sel", type=str, default="", help="selected data extension")
 parser.add_argument("--sample_select", action="store_true", help="max layer to sep loc")
 parser.add_argument("--sim", type=str, default="", help="selected data extension")
-parser.add_argument("--sim_rank", type=str, default="", help="selected data extension")
 parser.add_argument("--sample_select_tau_max", type=float, default=1., help="selected data extension")
 parser.add_argument("--sample_select_tau_min", type=float, default=1., help="selected data extension")
 parser.add_argument("--sample_select_tau_step", type=int, default=1., help="selected data extension")
@@ -202,6 +201,7 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
   valid_acc = 0
   n_batches = 0
   total_ppl, total_bleu = 0, 0
+  ppl_list, bleu_list = [], []
   valid_bleu = None
   for x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, y_char, eop, eof, dev_file_index, x_rank in data.next_dev(dev_batch_size=valid_batch_size):
     # clear GPU memory
@@ -234,6 +234,7 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
       valid_acc = 0
       n_batches = 0
       total_ppl += val_ppl
+      ppl_list.append(val_ppl)
     if eop:
       break
   # BLEU eval
@@ -274,6 +275,7 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
           valid_bleu = 0.
         print(" val_bleu={0:<.2f}".format(valid_bleu))
         total_bleu += valid_bleu
+        bleu_list.append(valid_bleu)
         dev_idx += 1
         if not eop:
           out_file = open(valid_hyp_file_list[dev_idx], "w", encoding="utf-8")
@@ -281,7 +283,7 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
         break
   model.hparams.decode = False
   model.train()
-  return total_ppl, total_bleu
+  return total_ppl, total_bleu, ppl_list, bleu_list
 
 def train():
   if args.load_model and (not args.reset_hparams):
@@ -395,7 +397,6 @@ def train():
       sel=args.sel,
       sample_select=args.sample_select,
       sim=args.sim,
-      sim_rank=args.sim_rank,
       sample_select_tau_max=args.sample_select_tau_max,
       sample_select_tau_min=args.sample_select_tau_min,
       sample_select_tau_step=args.sample_select_tau_step,
@@ -475,15 +476,9 @@ def train():
         print("initialize uniform with range {}".format(args.init_range))
         for p in model.parameters():
           p.data.uniform_(-args.init_range, args.init_range)
-      if args.id_init_sep and args.semb and args.sep_char_proj:
-        print("initialize char proj as identity matrix")
-        for s in model.encoder.char_emb.sep_proj_list:
-          d = s.weight.data.size(0)
-          s.weight.data.copy_(torch.eye(d) + args.id_scale*torch.diagflat(torch.ones(d).normal_(0,1)))
     trainable_params = [
       p for p in model.parameters() if p.requires_grad]
     optim = torch.optim.Adam(trainable_params, lr=hparams.lr, weight_decay=hparams.l2_reg)
-    #optim = torch.optim.Adam(trainable_params)
     step = 0
     best_val_ppl = None
     best_val_bleu = None
@@ -505,71 +500,26 @@ def train():
   print("start training...")
   start_time = log_start_time = time.time()
   target_words, total_loss, total_corrects = 0, 0, 0
-  target_rules, target_total, target_eos = 0, 0, 0
-  total_word_loss, total_rule_loss, total_eos_loss = 0, 0, 0
   model.train()
-  #i = 0
   epoch = 0
-  dev_zero = args.dev_zero
-  baseline_loss = None
   tr_loss, update_batch_size = None, 0
-  s0_trainable_params = []
   for (x_train, x_mask, x_count, x_len, x_pos_emb_idxs, y_train, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_train_char_sparse, y_train_char_sparse, eop, file_idx, x_rank) in data.next_train():
     step += 1
     target_words += (y_count - batch_size)
     logits = model.forward(x_train, x_mask, x_len, x_pos_emb_idxs, y_train[:,:-1], y_mask[:,:-1], y_len, y_pos_emb_idxs, x_train_char_sparse, y_train_char_sparse, file_idx=file_idx, step=step, x_rank=x_rank)
     logits = logits.view(-1, hparams.trg_vocab_size)
     labels = y_train[:,1:].contiguous().view(-1)
-      
-    cur_tr_loss, cur_tr_acc = get_performance(crit, logits, labels, hparams)
+    
+    cur_tr_loss, cur_tr_acc = get_performance(crit, logits, labels, hparams, logits_q=logits_q)
     total_loss += cur_tr_loss.item()
     total_corrects += cur_tr_acc.item()
-    if file_idx[0] == args.prob_rate_idx-1:
-      baseline_loss = cur_tr_loss.item() / (y_count - batch_size)
-    if file_idx[0] == args.prob_rate_idx: 
-      if step  % args.log_every == 0:
-        print("cur loss: {}".format((cur_tr_loss.item() / (y_count - batch_size))) )
-      weight = 0.5 * min(1, step / 30000)
-      cur_tr_loss = cur_tr_loss * weight
-      if step  % args.log_every == 0:
-        print("baseline: {}, weight: {}".format(baseline_loss, weight))
+
     if tr_loss is None:
       tr_loss = cur_tr_loss
     else:
       tr_loss = tr_loss + cur_tr_loss
     update_batch_size += batch_size
-    if dev_zero:
-      dev_zero = False
-      #based_on_bleu = args.eval_bleu and best_val_ppl <= args.ppl_thresh
-      based_on_bleu = args.eval_bleu
-      val_ppl, val_bleu = eval(model, data, crit, step, hparams, eval_bleu=based_on_bleu, valid_batch_size=args.valid_batch_size, tr_logits=logits)	
-      if based_on_bleu:
-        if best_val_bleu <= val_bleu:
-          save = True 
-          best_val_bleu = val_bleu
-          cur_attempt = 0
-        else:
-          save = False
-          cur_attempt += 1
-      else:
-      	if best_val_ppl >= val_ppl:
-          save = True
-          best_val_ppl = val_ppl
-          cur_attempt = 0 
-      	else:
-          save = False
-          cur_attempt += 1
-      if save or args.always_save:
-      	save_checkpoint([step, best_val_ppl, best_val_bleu, cur_attempt, lr], 
-      		             model, optim, hparams, args.output_dir)
-      elif not args.lr_schedule and step >= hparams.n_warm_ups:
-        lr = lr * args.lr_dec
-        set_lr(optim, lr)
-      # reset counter after eval
-      log_start_time = time.time()
-      target_words = total_corrects = total_loss = 0
-      target_rules = target_total = target_eos = 0
-      total_word_loss = total_rule_loss = total_eos_loss = 0
+
     if step % args.update_batch == 0:
       # set learning rate
       if args.lr_schedule:
@@ -586,15 +536,7 @@ def train():
         s = (step / args.update_batch) % args.lr_dec_steps
         lr = args.lr_min + 0.5*(args.lr_max-args.lr_min)*(1+np.cos(s*np.pi/args.lr_dec_steps))
         set_lr(optim, lr)
-      if args.sp_reg and s0_trainable_params:
-        total_norm = 0
-        assert len(s0_trainable_params) == len(trainable_params)
-        for p_s, p in zip(s0_trainable_params, trainable_params):
-          param_norm = (p - p_s).norm(2)
-          total_norm += param_norm ** 2
-        total_norm = total_norm ** 0.5
-        tr_loss = tr_loss + total_norm
-       
+      
       tr_loss.div_(update_batch_size)
       tr_loss.backward()
       grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad)
@@ -604,17 +546,6 @@ def train():
           print("x:", x_train.data)
           print("y:", y_train.data)
           print("logits:", logits.data)
-          ##print("x_emb grad:", model.encoder.word_emb.weight.grad)
-          #print("y_emb grad:", model.decoder.word_emb.weight.grad)
-          #print("y_emb grad:", model.decoder.word_emb.weight.grad.size())
-          #print("y layer norm grad:", model.decoder.layer_stack[0].y_attn.layer_norm.scale.grad.data)
-          #print("y layer norm grad:", model.decoder.layer_stack[0].y_attn.layer_norm.offset.grad.data)
-          #print("decoder layer 0")
-          #for p in model.decoder.layer_stack[0].y_attn.parameters():
-          #  if not p.requires_grad: continue
-          #  print(p.data)
-          #  print(p.grad)
-          #  print(p.grad.size())
           exit(0)
       optim.step()
       optim.zero_grad()
@@ -651,32 +582,37 @@ def train():
       eval_now = False 
     if eval_now:
       based_on_bleu = args.eval_bleu and best_val_ppl is not None and best_val_ppl <= args.ppl_thresh
-      if args.dev_zero: based_on_bleu = True
       with torch.no_grad():
-        val_ppl, val_bleu = eval(model, data, crit, step, hparams, eval_bleu=based_on_bleu, valid_batch_size=args.valid_batch_size, tr_logits=logits)	
+        val_ppl, val_bleu, ppl_list, bleu_list = eval(model, data, crit, step, hparams, eval_bleu=based_on_bleu, valid_batch_size=args.valid_batch_size, tr_logits=logits)	
       if based_on_bleu:
-        if best_val_bleu is None or best_val_bleu <= val_bleu:
-          save = True 
-          best_val_bleu = val_bleu
+        if best_val_bleu[0] is None or best_val_bleu[0] <= val_bleu:
+          save_p = True 
+          best_val_bleu[0] = val_bleu
           cur_attempt = 0
         else:
-          save = False
+          save_p = False
           cur_attempt += 1
+      	if best_val_bleu[1] is None or best_val_bleu[1] >= bleu_list[1]:
+          save_q = True
+          best_val_bleu[1] = bleu_list[1]
+      	else:
+          save_q = False
       else:
-      	if best_val_ppl is None or best_val_ppl >= val_ppl:
-          save = True
-          best_val_ppl = val_ppl
+      	if best_val_ppl[0] is None or best_val_ppl[0] >= val_ppl:
+          save_p = True
+          best_val_ppl[0] = val_ppl
           cur_attempt = 0 
       	else:
-          save = False
+          save_p = False
           cur_attempt += 1
-      if save or args.always_save:
+      	if best_val_ppl[1] is None or best_val_ppl[1] >= ppl_list[1]:
+          save_q = True
+          best_val_ppl[1] = ppl_list[1]
+      	else:
+          save_q = False
+
+      if save_p:
         save_checkpoint([step, best_val_ppl, best_val_bleu, cur_attempt, lr], model, optim, hparams, args.output_dir)
-        if args.sp_reg:
-          s0_trainable_params = []
-          for p in model.parameters(): 
-            if p.requires_grad: 
-              s0_trainable_params.append(p.detach().clone())
       elif not args.lr_schedule and step >= hparams.n_warm_ups:
         lr = lr * args.lr_dec
         set_lr(optim, lr)

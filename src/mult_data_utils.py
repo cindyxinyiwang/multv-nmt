@@ -64,6 +64,14 @@ class MultDataUtil(object):
             print(self.train_src_file_list)
             print(self.train_trg_file_list)
       self.hparams.lan_size = len(self.train_src_file_list)
+    if self.hparams.semb_num > 1:
+      self.src_i2w_list, self.src_w2i_list = [], []
+      for i, src_vocab in enumerate(self.src_vocab_list):
+        src_i2w, src_w2i = self._build_vocab(src_vocab, max_vocab_size=self.hparams.src_vocab_size)
+        print("data {} src vocab size is {}".format(i, len(src_i2w)))
+        self.src_i2w_list.append(src_i2w)
+        self.src_w2i_list.append(src_w2i)
+
     if self.hparams.src_vocab_list:
       self.src_i2w, self.src_w2i = self._build_char_vocab_from(self.src_vocab_list, self.hparams.src_vocab_size)
       self.hparams.src_vocab_size = len(self.src_i2w)
@@ -74,6 +82,8 @@ class MultDataUtil(object):
       self.src_char_vsize = len(self.src_char_i2w)
       setattr(self.hparams, 'src_char_vsize', self.src_char_vsize)
       print("src_char_vsize={}".format(self.src_char_vsize))
+      #if self.hparams.compute_ngram:
+      #  self.
     else:
       self.src_char_vsize = None
       setattr(self.hparams, 'src_char_vsize', None)
@@ -83,7 +93,7 @@ class MultDataUtil(object):
       self.end_indices = [[] for i in range(len(self.train_src_file_list))]
       if self.hparams.balance_idx >= 0:
         print("load balance data {}...".format(self.hparams.balance_idx))
-        self.bal_x_train, self.bal_y_train, self.bal_x_char_kv, self.bal_x_len = self._build_parallel(self.train_src_file_list[self.hparams.balance_idx], self.train_trg_file_list[self.hparams.balance_idx], outprint=True)
+        self.bal_x_train, self.bal_y_train, self.bal_x_char_kv, self.bal_x_len, self.bal_x_rank = self._build_parallel(self.train_src_file_list[self.hparams.balance_idx], self.train_trg_file_list[self.hparams.balance_idx], outprint=True)
     elif (not self.hparams.decode) and self.hparams.sample_select:
       self.start_indices = []
       self.end_indices = []     
@@ -93,7 +103,7 @@ class MultDataUtil(object):
   def get_trg2srcs(self):
     trg2srcs = {}
     for data_idx in range(self.hparams.lan_size):
-      x_train, y_train, x_char_kv, x_len = self._build_parallel(self.train_src_file_list[data_idx], self.train_trg_file_list[data_idx], data_idx, outprint=True)
+      x_train, y_train, x_char_kv, x_len, x_rank = self._build_parallel(self.train_src_file_list[data_idx], self.train_trg_file_list[data_idx], data_idx, outprint=True)
       sim_file = "data/{}_eng/ted-train.mtok.{}.{}".format(self.lans[data_idx], self.lans[data_idx], self.hparams.sim)
       sim_score = []
       with open(sim_file) as myfile:
@@ -259,8 +269,8 @@ class MultDataUtil(object):
       else:
         self.train_data_queue = [i for i in range(len(self.train_src_file_list))]
       for data_idx in self.train_data_queue:
-        x_train, y_train, x_char_kv, x_len = self._build_parallel(self.train_src_file_list[data_idx], self.train_trg_file_list[data_idx], data_idx, outprint=(self.hparams.sample_load or len(self.start_indices[data_idx]) == 0))
-        #x_train, y_train, x_char_kv, x_len = self._build_parallel(self.train_src_file_list[data_idx], self.train_trg_file_list[data_idx], outprint=True)
+        x_train, y_train, x_char_kv, x_len, x_rank = self._build_parallel(self.train_src_file_list[data_idx], self.train_trg_file_list[data_idx], data_idx, outprint=(self.hparams.sample_load or len(self.start_indices[data_idx]) == 0))
+        #x_train, y_train, x_char_kv, x_len, x_rank = self._build_parallel(self.train_src_file_list[data_idx], self.train_trg_file_list[data_idx], outprint=True)
         # set batcher indices once
         if not self.start_indices[data_idx] or self.hparams.sample_load:
           start_indices, end_indices = [], []
@@ -296,15 +306,18 @@ class MultDataUtil(object):
           #    for s, bal_batch_idx in enumerate(np.random.permutation(len(self.start_indices[self.hparams.balance_idx]))):
           #      return self.yield_data(self.hparams.balance_idx, bal_batch_idx, self.bal_x_train, self.bal_x_char_kv, self.bal_y_train, s)
           step += 1
-          yield self.yield_data(data_idx, batch_idx, x_train, x_char_kv, y_train, step_b)
+          yield self.yield_data(data_idx, batch_idx, x_train, x_char_kv, y_train, step_b, x_rank)
  
-  def yield_data(self, data_idx, batch_idx, x_train, x_char_kv, y_train, step):
+  def yield_data(self, data_idx, batch_idx, x_train, x_char_kv, y_train, step, x_train_rank):
     start_index, end_index = self.start_indices[data_idx][batch_idx], self.end_indices[data_idx][batch_idx]
-    x, y, x_char = [], [], [] 
+    x, y, x_char, x_rank = [], [], [], []
     if x_train:
       x = x_train[start_index:end_index]
     if x_char_kv:
       x_char = x_char_kv[start_index:end_index]
+    if x_train_rank:
+      x_rank = x_train_rank[start_index:end_index]
+
     y = y_train[start_index:end_index]
     if self.hparams.sample_sep > 0:
       replace = np.random.binomial(1, p=self.hparams.sample_sep)
@@ -318,24 +331,32 @@ class MultDataUtil(object):
     else:
       train_file_index = [data_idx for i in range(end_index - start_index)] 
     if self.shuffle:
-      x, y, x_char, train_file_index = self.sort_by_xlen([x, y, x_char, train_file_index])
-
+      x, y, x_char, train_file_index, x_rank = self.sort_by_xlen([x, y, x_char, train_file_index, x_rank])
     # pad
-    x, x_mask, x_count, x_len, x_pos_emb_idxs, x_char = self._pad(x, self.hparams.pad_id, x_char, self.hparams.src_char_vsize)
-    y, y_mask, y_count, y_len, y_pos_emb_idxs, y_char = self._pad(y, self.hparams.pad_id)
+    x, x_mask, x_count, x_len, x_pos_emb_idxs, x_char, x_rank = self._pad(x, self.hparams.pad_id, x_char, self.hparams.src_char_vsize, x_rank)
+    y, y_mask, y_count, y_len, y_pos_emb_idxs, y_char, y_rank = self._pad(y, self.hparams.pad_id)
     batch_size = end_index - start_index
+    if step == len(self.start_indices[data_idx])-1:
+      eof = True
+    else:
+      eof = False
     if data_idx == self.train_data_queue[-1] and step == len(self.start_indices[data_idx])-1:
       eop = True
     else:
       eop = False
+    return x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, None, eop, eof, train_file_index, x_rank
 
-    return x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, None, eop, train_file_index
-
-  def next_dev(self, dev_batch_size=1):
+  def next_dev(self, dev_batch_size=1, data_idx=0):
     first_dev = True
+    idxes = [0]
+    if data_idx != 0:
+      idxes.append(data_idx)
+    else:
+      idxes.append(1)
     while True:
-      for data_idx in range(len(self.hparams.dev_src_file_list)):
-        x_dev, y_dev, x_char_kv, x_dev_len = self._build_parallel(self.hparams.dev_src_file_list[data_idx], self.hparams.dev_trg_file_list[data_idx], data_idx, is_train=False, outprint=first_dev)
+      #for data_idx in range(len(self.hparams.dev_src_file_list)):
+      for data_idx in idxes:
+        x_dev, y_dev, x_char_kv, x_dev_len, x_dev_rank = self._build_parallel(self.hparams.dev_src_file_list[data_idx], self.hparams.dev_trg_file_list[data_idx], data_idx, is_train=False, outprint=True)
         first_dev = False
         start_index, end_index = 0, 0
         while end_index < len(x_dev_len):
@@ -346,30 +367,33 @@ class MultDataUtil(object):
           if x_char_kv:
             x_char = x_char_kv[start_index:end_index]
           y = y_dev[start_index:end_index]
-          dev_file_index = [self.hparams.dev_file_idx_list[data_idx] for i in range(end_index - start_index)] 
+          dev_file_index = [self.hparams.dev_file_idx_list[data_idx] for i in range(end_index - start_index)]
+          if self.hparams.semb_num > 1:
+            x_rank = x_dev_rank[start_index:end_index]
+          else:
+            x_rank = []
           if self.shuffle:
-            x, y, x_char, dev_file_index = self.sort_by_xlen([x, y, x_char, dev_file_index])
-
+            x, y, x_char, dev_file_index, x_rank = self.sort_by_xlen([x, y, x_char, dev_file_index, x_rank])
           # pad
-          x, x_mask, x_count, x_len, x_pos_emb_idxs, x_char = self._pad(x, self.hparams.pad_id, x_char, self.hparams.src_char_vsize)
-          y, y_mask, y_count, y_len, y_pos_emb_idxs, y_char = self._pad(y, self.hparams.pad_id)
+          x, x_mask, x_count, x_len, x_pos_emb_idxs, x_char, x_rank = self._pad(x, self.hparams.pad_id, x_char, self.hparams.src_char_vsize, x_rank)
+          y, y_mask, y_count, y_len, y_pos_emb_idxs, y_char, y_rank = self._pad(y, self.hparams.pad_id)
           batch_size = end_index - start_index
           if end_index == len(x_dev_len):
             eof = True
           else:
             eof = False
-          if data_idx == len(self.hparams.dev_src_file_list)-1 and eof:
+          if data_idx == idxes[-1] and eof:
             eop = True
           else:
             eop = False
           start_index = end_index
-          yield x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, None, eop, eof, dev_file_index
+          yield x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, None, eop, eof, dev_file_index, x_rank
 
 
   def next_test(self, test_batch_size=1):
     while True:
       for data_idx in range(len(self.hparams.test_src_file_list)):
-        x_test, y_test, x_char_kv, x_test_len = self._build_parallel(self.hparams.test_src_file_list[data_idx], self.hparams.test_trg_file_list[data_idx], data_idx, is_train=False, outprint=True)
+        x_test, y_test, x_char_kv, x_test_len, x_rank = self._build_parallel(self.hparams.test_src_file_list[data_idx], self.hparams.test_trg_file_list[data_idx], data_idx, is_train=False, outprint=True)
         start_index, end_index = 0, 0
         while end_index < len(x_test_len):
           end_index = min(start_index + test_batch_size, len(x_test_len))
@@ -384,8 +408,8 @@ class MultDataUtil(object):
             x, y, x_char, test_file_index = self.sort_by_xlen([x, y, x_char, test_file_index])
 
           # pad
-          x, x_mask, x_count, x_len, x_pos_emb_idxs, x_char = self._pad(x, self.hparams.pad_id, x_char, self.hparams.src_char_vsize)
-          y, y_mask, y_count, y_len, y_pos_emb_idxs, y_char = self._pad(y, self.hparams.pad_id)
+          x, x_mask, x_count, x_len, x_pos_emb_idxs, x_char, x_rank = self._pad(x, self.hparams.pad_id, x_char, self.hparams.src_char_vsize, x_rank)
+          y, y_mask, y_count, y_len, y_pos_emb_idxs, y_char, y_rank = self._pad(y, self.hparams.pad_id)
           batch_size = end_index - start_index
           if end_index == len(x_test_len):
             eof = True
@@ -396,7 +420,7 @@ class MultDataUtil(object):
           else:
             eop = False
           start_index = end_index
-          yield x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, None, eop, eof, test_file_index
+          yield x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, None, eop, eof, test_file_index, x_rank
 
 
   def sort_by_xlen(self, data_list, descend=True):
@@ -413,7 +437,7 @@ class MultDataUtil(object):
         data_list[i] = x[index].tolist()
     return data_list 
 
-  def _pad(self, sentences, pad_id, char_kv=None, char_dim=None):
+  def _pad(self, sentences, pad_id, char_kv=None, char_dim=None, x_rank=None):
     if sentences:
       batch_size = len(sentences)
       lengths = [len(s) for s in sentences]
@@ -422,6 +446,7 @@ class MultDataUtil(object):
       padded_sentences = [s + ([pad_id]*(max_len - len(s))) for s in sentences]
       padded_sentences = Variable(torch.LongTensor(padded_sentences))
       char_sparse = None
+      padded_x_rank = None
     else:
       batch_size = len(char_kv)
       lengths = [len(s) for s in char_kv]
@@ -429,6 +454,11 @@ class MultDataUtil(object):
       count = sum(lengths)
       max_len = max(lengths)
       char_sparse = []
+      if x_rank:
+        padded_x_rank = [s + ([0]*(max_len - len(s))) for s in x_rank]
+      else:
+        padded_x_rank = None
+
       for kvs in char_kv:
         sent_sparse = []
         key, val = [], []
@@ -449,7 +479,7 @@ class MultDataUtil(object):
         padded_sentences = padded_sentences.cuda()
       pos_emb_indices = pos_emb_indices.cuda()
       mask = mask.cuda()
-    return padded_sentences, mask, count, lengths, pos_emb_indices, char_sparse
+    return padded_sentences, mask, count, lengths, pos_emb_indices, char_sparse, padded_x_rank
 
   def _get_char(self, word, i2w, w2i, n=1):
     chars = []
@@ -510,6 +540,9 @@ class MultDataUtil(object):
     skip_line_count = 0
     src_unk_count = 0
     trg_unk_count = 0
+    src_word_rank = [] 
+    if self.hparams.semb_num > 1:
+      cur_src_w2i = self.src_w2i_list[data_idx]
 
     src_lens = []
     line_n = -1
@@ -533,6 +566,8 @@ class MultDataUtil(object):
         src_char_kv = [{0:0}]
       else:
         src_indices = [self.hparams.bos_id] 
+      if self.hparams.semb_num > 1:
+        src_ranks = [0]
       for src_tok in src_tokens:
         # calculate char ngram emb for src_tok
         if self.hparams.char_ngram_n > 0:
@@ -547,6 +582,19 @@ class MultDataUtil(object):
             src_unk_count += 1
           else:
             src_indices.append(self.src_w2i[src_tok])
+        if self.hparams.semb_num > 1:
+          if src_tok in cur_src_w2i:
+            cur_idx = cur_src_w2i[src_tok]
+            #rank = cur_idx // (len(cur_src_w2i) // self.hparams.semb_num + 1)
+            if data_idx < 0:
+              rank = cur_idx // 2500
+            else:
+              rank = cur_idx // 5000
+            rank = min(rank, self.hparams.semb_num-1)
+            rank = rank % self.hparams.semb_num
+          else:
+            rank = self.hparams.semb_num - 1
+          src_ranks.append(rank)
 
       for trg_tok in trg_tokens:
         if trg_tok not in self.trg_w2i:
@@ -563,17 +611,21 @@ class MultDataUtil(object):
       else:
         src_indices.append(self.hparams.eos_id)
         src_data.append(src_indices)
+      if self.hparams.semb_num > 1:
+        src_ranks.append(0)
+        src_word_rank.append(src_ranks)
       line_count += 1
+      #if line_count == 20: break
       if outprint:
         if line_count % 10000 == 0:
           print("processed {} lines".format(line_count))
 
     if is_train and shuffle:
-      src_data, trg_data, src_char_kv_data = self.sort_by_xlen([src_data, trg_data, src_char_kv_data], descend=False)
+      src_data, trg_data, src_char_kv_data, src_word_rank = self.sort_by_xlen([src_data, trg_data, src_char_kv_data, src_word_rank], descend=False)
     if outprint:
       print("src_unk={}, trg_unk={}".format(src_unk_count, trg_unk_count))
       print("lines={}, skipped_lines={}".format(len(trg_data), skip_line_count))
-    return src_data, trg_data, src_char_kv_data, src_lens
+    return src_data, trg_data, src_char_kv_data, src_lens, src_word_rank
 
   def _build_char_vocab(self, lines, n=1):
     i2w = ['<pad>', '<unk>', '<s>', '<\s>']
@@ -680,7 +732,10 @@ class MultDataUtil(object):
       vsize_list.append(vsize_list[-1])
     #if self.hparams.ordered_char_dict:
     i2w = [ '<unk>']
-    i2w_set = set(i2w) 
+    i2w_set = set(i2w)
+    if self.hparams.compute_ngram:
+      i2w_base = ['<unk>']
+      i2w_four = []
     for vfile, size in zip(vfile_list, vsize_list):
       cur_vsize = 0
       with open(vfile, 'r', encoding='utf-8') as f:
@@ -691,27 +746,25 @@ class MultDataUtil(object):
           if w == '<unk>' or w == '<pad>' or w == '<s>' or w == '<\s>': continue
           cur_vsize += 1
           if w not in i2w_set:
-            i2w.append(w)
-            i2w_set.add(w)
+            if self.hparams.compute_ngram:
+              if len(w) == 4:
+                i2w_four.append(w)
+              else:
+                i2w_base.append(w)
+            else:
+              i2w.append(w)
+              i2w_set.add(w)
             if size > 0 and cur_vsize > size: break
-    #else:
-    #  i2w_sets = []
-    #  for vfile, size in zip(vfile_list, vsize_list):
-    #    i2w = []
-    #    with open(vfile, 'r', encoding='utf-8') as f:
-    #      for line in f:
-    #        w = line.strip()
-    #        if single_n and n and len(w) != n: continue
-    #        if not single_n and n and len(w) > n: continue 
-    #        if w == '<unk>' or w == '<pad>' or w == '<s>' or w == '<\s>': continue
-    #        i2w.append(w)
-    #        if size > 0 and len(i2w) > size: break 
-    #    i2w_sets.append(set(i2w))
-    #  i2w_set = set([])
-    #  for s in i2w_sets:
-    #    i2w_set = i2w_set | s
-    #  i2w = ['<unk>'] + list(i2w_set)
-
+    if self.hparams.compute_ngram:
+      i2w = i2w_base + i2w_four
+      self.i2w_base = i2w_base
+      self.i2w_four = i2w_four
+      self.w2i_base = {}
+      for i, w in enumerate(i2w_base):
+        self.w2i_base[w] = i
+      self.w2i_four = {}
+      for i, w in enumerate(i2w_four):
+        self.w2i_four[w] = i
     w2i = {}
     for i, w in enumerate(i2w):
       w2i[w] = i
