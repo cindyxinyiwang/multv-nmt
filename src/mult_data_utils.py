@@ -98,19 +98,22 @@ class MultDataUtil(object):
       sim_score = []
       with open(sim_file) as myfile:
         for line in myfile:
-          if data_idx < 1:
-            sim_score.append(0)
+          if self.hparams.sim_rank:
+            sim_score.append(self.hparams.sim_rank[data_idx])
           else:
-            sim_score.append(float(line.strip()))
+            if data_idx < 1:
+              sim_score.append(0)
+            else:
+              sim_score.append(float(line.strip()))
 
           #if data_idx <= 1:
           #  sim_score.append(3.0)
           #elif data_idx == 2:
-          #  sim_score.append(0)
+          #  sim_score.append(-1)
           #elif data_idx == 3:
-          #  sim_score.append(2.0)
-          #else:
           #  sim_score.append(1.0)
+          #else:
+          #  sim_score.append(0.0)
 
           #sim_score.append(float(line.strip()))
       for i, y in enumerate(y_train):

@@ -174,6 +174,7 @@ parser.add_argument("--cons_vocab", action="store_true", help="max layer to sep 
 parser.add_argument("--sel", type=str, default="", help="selected data extension")
 parser.add_argument("--sample_select", action="store_true", help="max layer to sep loc")
 parser.add_argument("--sim", type=str, default="", help="selected data extension")
+parser.add_argument("--sim_rank", type=str, default="", help="selected data extension")
 parser.add_argument("--sample_select_tau_max", type=float, default=1., help="selected data extension")
 parser.add_argument("--sample_select_tau_min", type=float, default=1., help="selected data extension")
 parser.add_argument("--sample_select_tau_step", type=int, default=1., help="selected data extension")
@@ -390,6 +391,7 @@ def train():
       sel=args.sel,
       sample_select=args.sample_select,
       sim=args.sim,
+      sim_rank=args.sim_rank,
       sample_select_tau_max=args.sample_select_tau_max,
       sample_select_tau_min=args.sample_select_tau_min,
       sample_select_tau_step=args.sample_select_tau_step,
