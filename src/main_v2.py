@@ -188,6 +188,9 @@ parser.add_argument("--sample_load", action="store_true", help="max layer to sep
 parser.add_argument("--sample_prob_list", type=str, default="", help="selected data extension")
 
 parser.add_argument("--compute_ngram", action="store_true", help="max layer to sep loc")
+parser.add_argument("--mask_weight", type=float, default=0., help="min weight to keep the instance")
+parser.add_argument("--exclude_q_idx", type=str, default="", help="indices to ignore for q model update")
+parser.add_argument("--exclude_weight_idx", type=str, default="0", help="indices to ignore for weighted model update")
 args = parser.parse_args()
 
 if args.bpe_ngram: args.n = None
@@ -408,6 +411,9 @@ def train():
       sample_load=args.sample_load,
       sample_prob_list=args.sample_prob_list,
       compute_ngram=args.compute_ngram,
+      mask_weight=args.mask_weight,
+      exclude_q_idx=args.exclude_q_idx,
+      exclude_weight_idx=args.exclude_weight_idx,
     )
   # build or load model
   print("-" * 80)
@@ -417,6 +423,11 @@ def train():
     model_file_name = os.path.join(args.output_dir, "model.pt")
     print("Loading model from '{0}'".format(model_file_name))
     model = torch.load(model_file_name)
+
+    model_file_name_q = os.path.join(args.output_dir, "model_q.pt")
+    print("Loading model from '{0}'".format(model_file_name_q))
+    model = torch.load(model_file_name_q)
+
     if not hasattr(model, 'data'):
       model.data = data
     if not hasattr(model.hparams, 'transformer_wdrop'):
@@ -426,10 +437,17 @@ def train():
     print("Loading optimizer from {}".format(optim_file_name))
     trainable_params = [
       p for p in model.parameters() if p.requires_grad]
-    #optim = torch.optim.Adam(trainable_params, lr=hparams.lr, betas=(0.9, 0.98), eps=1e-9, weight_decay=hparams.l2_reg)
     optim = torch.optim.Adam(trainable_params, lr=hparams.lr, weight_decay=hparams.l2_reg)
     optimizer_state = torch.load(optim_file_name)
     optim.load_state_dict(optimizer_state)
+
+    optim_file_name_q = os.path.join(args.output_dir, "optimizer_q.pt")
+    print("Loading optimizer from {}".format(optim_file_name_q))
+    trainable_params_q = [
+      p for p in model_q.parameters() if p.requires_grad]
+    optim_q = torch.optim.Adam(trainable_params_q, lr=hparams.lr, weight_decay=hparams.l2_reg)
+    optimizer_state_q = torch.load(optim_file_name_q)
+    optim_q.load_state_dict(optimizer_state_q)
 
     extra_file_name = os.path.join(args.output_dir, "extra.pt")
     step, best_val_ppl, best_val_bleu, cur_attempt, lr = torch.load(extra_file_name)
@@ -509,7 +527,8 @@ def train():
       logits = model.forward(x_train, x_mask, x_len, x_pos_emb_idxs, y_train[:,:-1], y_mask[:,:-1], y_len, y_pos_emb_idxs, x_train_char_sparse, y_train_char_sparse, file_idx=file_idx, step=step, x_rank=x_rank)
       logits = logits.view(-1, hparams.trg_vocab_size)
     
-    if data_idx > 0:
+    #if data_idx > -1:
+    if data_idx not in hparams.exclude_q_idx:
       logits_q = model_q.forward(x_train, x_mask, x_len, x_pos_emb_idxs, y_train[:,:-1], y_mask[:,:-1], y_len, y_pos_emb_idxs, x_train_char_sparse, y_train_char_sparse, file_idx=file_idx, step=step, x_rank=x_rank)
       logits_q = logits_q.view(-1, hparams.trg_vocab_size)
       cur_tr_loss_q, cur_tr_acc_q = get_performance(crit, logits_q, labels, hparams)
@@ -523,7 +542,12 @@ def train():
       logits_q = None
 
     if not new_lan_warm:
-      cur_tr_loss, cur_tr_acc = get_performance(crit, logits, labels, hparams, logits_q=logits_q, batch_size=batch_size)
+      #if data_idx == 0: q = None
+      if data_idx not in hparams.exclude_weight_idx: 
+        q = None
+      else:
+        q = logits_q
+      cur_tr_loss, cur_tr_acc = get_performance(crit, logits, labels, hparams, logits_q=q, batch_size=batch_size)
       total_loss += cur_tr_loss.item()
       total_corrects += cur_tr_acc.item()
       if tr_loss is None:
@@ -563,7 +587,7 @@ def train():
         optim.step()
         optim.zero_grad()
         tr_loss = None
-      if data_idx > 0:
+      if data_idx not in hparams.exclude_q_idx:
         tr_loss_q.div_(update_batch_size)
         tr_loss_q.backward()
         grad_norm_q = torch.nn.utils.clip_grad_norm_(model_q.parameters(), args.clip_grad)
@@ -623,7 +647,7 @@ def train():
       eval_now = True
     if eof:
       eval_now = True
-    if new_lan_warm and (step / args.update_batch) % args.eval_every == 500:
+    if new_lan_warm and (step / args.update_batch) % args.eval_every == 100:
       eval_now = True
     if eval_now:
       based_on_bleu = args.eval_bleu and best_val_ppl[0] is not None and best_val_ppl[0] <= args.ppl_thresh
@@ -633,13 +657,13 @@ def train():
       if based_on_bleu:
         if best_val_bleu[0] is None or best_val_bleu[0] <= bleu_list[0]:
           save_p = True 
-          best_val_bleu[0] = val_bleu
+          best_val_bleu[0] = bleu_list[0]
           cur_attempt = 0
         else:
           save_p = False
           cur_attempt += 1
-        if best_val_bleu_q[data_idx] is None or best_val_bleu_q[data_idx] >= ppl_list_q[data_idx]:
-          best_val_bleu_q[data_idx] = val_ppl_q
+        if best_val_bleu_q[data_idx] is None or best_val_bleu_q[data_idx] >= bleu_list_q[1]:
+          best_val_bleu_q[data_idx] = bleu_list_q[1]
 
         if bleu_list_q[0] > best_val_bleu[0]:
           print("update p_model with q_model..")
@@ -661,8 +685,8 @@ def train():
         else:
           save_p = False
           cur_attempt += 1
-        if best_val_ppl_q[data_idx] is None or best_val_ppl_q[data_idx] >= ppl_list_q[data_idx]:
-          best_val_ppl_q[data_idx] = ppl_list_q[data_idx]
+        if best_val_ppl_q[data_idx] is None or best_val_ppl_q[data_idx] >= ppl_list_q[1]:
+          best_val_ppl_q[data_idx] = ppl_list_q[1]
 
         if ppl_list_q[0] < best_val_ppl[0]:
           print(ppl_list_q[0], best_val_ppl[0])
@@ -678,10 +702,11 @@ def train():
           for p_p, p_q in zip(model.parameters(), model_q.parameters()):
             p_q.data.copy_(p_p.data)
           best_val_ppl_q[data_idx] = ppl_list[1]
-      if new_lan_warm: new_lan_warm = False
+      if new_lan_warm and (step / args.update_batch) % args.eval_every == 100:
+        new_lan_warm = False
       if (not eop) and eof: new_lan_warm = True
       if save_p:
-        save_checkpoint([step, best_val_ppl, best_val_bleu, cur_attempt, lr], model, optim, hparams, args.output_dir)
+        save_checkpoint([step, best_val_ppl, best_val_bleu, cur_attempt, lr], model, optim, hparams, args.output_dir, model_q, optim_q)
       elif not args.lr_schedule and step >= hparams.n_warm_ups:
         if new_lan_warm and (step / args.update_batch) % 500 == 0:
           pass
