@@ -31,6 +31,9 @@ def get_performance(crit, logits, labels, hparams, sum_loss=True, logits_q=None,
     ones = torch.FloatTensor([1]).expand_as(weight)
     if hparams.cuda: ones = ones.cuda()
     weight = torch.min(weight, ones)
+    if hparams.mask_weight > 0:
+      mask = weight <= hparams.mask_weight
+      weight.masked_fill_(mask, 0)
     loss = loss_p.view(batch_size, -1) * weight.unsqueeze(1)
     loss = loss.view(-1) 
   else:
@@ -45,11 +48,15 @@ def count_params(params):
   num_params = sum(p.data.nelement() for p in params)
   return num_params
 
-def save_checkpoint(extra, model, optimizer, hparams, path):
+def save_checkpoint(extra, model, optimizer, hparams, path, model_q=None, optimizer_q=None):
   print("Saving model to '{0}'".format(path))
   torch.save(extra, os.path.join(path, "extra.pt"))
   torch.save(model, os.path.join(path, "model.pt"))
+  if model_q is not None:
+    torch.save(model_q, os.path.join(path, "model_q.pt"))
   torch.save(optimizer.state_dict(), os.path.join(path, "optimizer.pt"))
+  if optimizer_q is not None:
+    torch.save(optimizer_q.state_dict(), os.path.join(path, "optimizer_q.pt"))
   torch.save(hparams, os.path.join(path, "hparams.pt"))
 
 class Logger(object):

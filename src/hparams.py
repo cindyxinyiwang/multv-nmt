@@ -48,4 +48,14 @@ class HParams(object):
         self.sep_layer = []
       else:
         self.sep_layer = [int(i) for i in self.sep_layer.split(',')]
+    if hasattr(self, 'exclude_q_idx') and type(self.exclude_q_idx) == str:
+      if not self.exclude_q_idx: 
+        self.exclude_q_idx = []
+      else:
+        self.exclude_q_idx = [int(i) for i in self.exclude_q_idx.split(',')]
+    if hasattr(self, 'exclude_weight_idx') and type(self.exclude_weight_idx) == str:
+      if not self.exclude_weight_idx: 
+        self.exclude_weight_idx = []
+      else:
+        self.exclude_weight_idx = [int(i) for i in self.exclude_weight_idx.split(',')]
 
