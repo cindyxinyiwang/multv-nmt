@@ -191,7 +191,8 @@ parser.add_argument("--compute_ngram", action="store_true", help="max layer to s
 parser.add_argument("--mask_weight", type=float, default=0., help="min weight to keep the instance")
 parser.add_argument("--exclude_q_idx", type=str, default="", help="indices to ignore for q model update")
 parser.add_argument("--exclude_weight_idx", type=str, default="0", help="indices to ignore for weighted model update")
-parser.add_argument("--exchange_q", type=int, default=1., help="whether to update q from p")
+parser.add_argument("--exchange_q", type=int, default=1, help="whether to update q from p")
+parser.add_argument("--new_lan_warm_step", type=int, default=100, help="steps of new lan warmup")
 args = parser.parse_args()
 
 if args.bpe_ngram: args.n = None
@@ -649,7 +650,7 @@ def train():
       eval_now = True
     if eof:
       eval_now = True
-    if new_lan_warm and (step / args.update_batch) % args.eval_every == 100:
+    if new_lan_warm and (step / args.update_batch) % args.eval_every == args.new_lan_warm_step:
       eval_now = True
     if eval_now:
       based_on_bleu = args.eval_bleu and best_val_ppl[0] is not None and best_val_ppl[0] <= args.ppl_thresh
@@ -706,7 +707,7 @@ def train():
           best_val_ppl_q[data_idx] = ppl_list[1]
       if new_lan_warm and (step / args.update_batch) % args.eval_every == 100:
         new_lan_warm = False
-      if (not eop) and eof: new_lan_warm = True
+      if (not eop) and eof and args.new_lan_warm_step > 0: new_lan_warm = True
       if save_p:
         save_checkpoint([step, best_val_ppl, best_val_bleu, cur_attempt, lr], model, optim, hparams, args.output_dir, model_q, optim_q)
       elif not args.lr_schedule and step >= hparams.n_warm_ups:

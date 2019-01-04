@@ -353,6 +353,8 @@ class MultDataUtil(object):
       idxes.append(data_idx)
     else:
       idxes.append(1)
+    if len(self.hparams.dev_src_file_list) == 1:
+      idxes = [0]
     while True:
       #for data_idx in range(len(self.hparams.dev_src_file_list)):
       for data_idx in idxes:
