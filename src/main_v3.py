@@ -191,7 +191,6 @@ parser.add_argument("--compute_ngram", action="store_true", help="max layer to s
 parser.add_argument("--mask_weight", type=float, default=0., help="min weight to keep the instance")
 parser.add_argument("--exclude_q_idx", type=str, default="", help="indices to ignore for q model update")
 parser.add_argument("--exclude_weight_idx", type=str, default="0", help="indices to ignore for weighted model update")
-parser.add_argument("--exchange_q", type=int, default=1., help="whether to update q from p")
 args = parser.parse_args()
 
 if args.bpe_ngram: args.n = None
@@ -415,7 +414,6 @@ def train():
       mask_weight=args.mask_weight,
       exclude_q_idx=args.exclude_q_idx,
       exclude_weight_idx=args.exclude_weight_idx,
-      exchange_q=args.exchange_q
     )
   # build or load model
   print("-" * 80)
@@ -674,7 +672,7 @@ def train():
           best_val_bleu[0] = bleu_list_q[0]
           save_p = True
           cur_attempt = 0
-        if args.exchange_q and bleu_list[1] > best_val_bleu_q[data_idx]:
+        if bleu_list[1] > best_val_bleu_q[data_idx]:
           print("update q_model with p_model..")
           for p_p, p_q in zip(model.parameters(), model_q.parameters()):
             p_q.data.copy_(p_p.data)
@@ -698,7 +696,7 @@ def train():
           best_val_ppl[0] = ppl_list_q[0]
           save_p = True
           cur_attempt = 0 
-        if args.exchange_q and len(ppl_list) > 1 and ppl_list[1] < best_val_ppl_q[data_idx]:
+        if len(ppl_list) > 1 and ppl_list[1] < best_val_ppl_q[data_idx]:
           print(ppl_list[1], best_val_ppl_q[data_idx])
           print("update q_model with p_model..")
           for p_p, p_q in zip(model.parameters(), model_q.parameters()):
