@@ -297,12 +297,17 @@ class MultDataUtil(object):
             exit(1)
           self.start_indices[data_idx] = start_indices
           self.end_indices[data_idx] = end_indices
+        cached = []
         for step_b, batch_idx in enumerate(np.random.permutation(len(self.start_indices[data_idx]))):
-          #if step > self.hparams.sep_step and self.hparams.balance_idx >= 0:
-          #  if data_idx != self.hparams.balance_idx and step_b % self.hparams.balance_ratio * len(self.start_indices[self.hparams.balance_idx]) == 0:
-          #    for s, bal_batch_idx in enumerate(np.random.permutation(len(self.start_indices[self.hparams.balance_idx]))):
-          #      return self.yield_data(self.hparams.balance_idx, bal_batch_idx, self.bal_x_train, self.bal_x_char_kv, self.bal_y_train, s)
+
           step += 1
+          if self.hparams.new_lan_warm:
+            cached.append(batch_idx)
+          if cached and not self.hparams.new_lan_warm:
+            while cached:
+              idx = cached[-1]
+              cached.pop()
+              yield self.yield_data(data_idx, batch_idx, x_train, x_char_kv, y_train, step_b, x_rank)
           yield self.yield_data(data_idx, batch_idx, x_train, x_char_kv, y_train, step_b, x_rank)
  
   def yield_data(self, data_idx, batch_idx, x_train, x_char_kv, y_train, step, x_train_rank):

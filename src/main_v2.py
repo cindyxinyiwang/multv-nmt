@@ -428,7 +428,7 @@ def train():
 
     model_file_name_q = os.path.join(args.output_dir, "model_q.pt")
     print("Loading model from '{0}'".format(model_file_name_q))
-    model = torch.load(model_file_name_q)
+    model_q = torch.load(model_file_name_q)
 
     if not hasattr(model, 'data'):
       model.data = data
@@ -453,6 +453,7 @@ def train():
 
     extra_file_name = os.path.join(args.output_dir, "extra.pt")
     step, best_val_ppl, best_val_bleu, cur_attempt, lr = torch.load(extra_file_name)
+    cur_attempt = 0
   else:
     if args.pretrained_model:
       model_name = os.path.join(args.pretrained_model, "model.pt")
@@ -518,14 +519,14 @@ def train():
   model.train()
   epoch = 0
   tr_loss, tr_loss_q, update_batch_size = None, 0, 0
-  new_lan_warm = False
+  hparams.new_lan_warm = False
   for (x_train, x_mask, x_count, x_len, x_pos_emb_idxs, y_train, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_train_char_sparse, y_train_char_sparse, eop, eof, file_idx, x_rank) in data.next_train():
     step += 1
     target_words += (y_count - batch_size)
     data_idx = file_idx[0]
 
     labels = y_train[:,1:].contiguous().view(-1)
-    if not new_lan_warm:
+    if not hparams.new_lan_warm:
       logits = model.forward(x_train, x_mask, x_len, x_pos_emb_idxs, y_train[:,:-1], y_mask[:,:-1], y_len, y_pos_emb_idxs, x_train_char_sparse, y_train_char_sparse, file_idx=file_idx, step=step, x_rank=x_rank)
       logits = logits.view(-1, hparams.trg_vocab_size)
     
@@ -543,7 +544,7 @@ def train():
     else:
       logits_q = None
 
-    if not new_lan_warm:
+    if not hparams.new_lan_warm:
       #if data_idx == 0: q = None
       if data_idx not in hparams.exclude_weight_idx: 
         q = None
@@ -575,7 +576,7 @@ def train():
         lr = args.lr_min + 0.5*(args.lr_max-args.lr_min)*(1+np.cos(s*np.pi/args.lr_dec_steps))
         set_lr(optim, lr)
       
-      if not new_lan_warm:
+      if not hparams.new_lan_warm:
         tr_loss.div_(update_batch_size)
         tr_loss.backward()
         grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad)
@@ -614,7 +615,7 @@ def train():
       since_start = (curr_time - start_time) / 60.0
       elapsed = (curr_time - log_start_time) / 60.0
       log_string = "ep={0:<3d}".format(epoch)
-      if new_lan_warm:
+      if hparams.new_lan_warm:
         print("model_q...")
         log_string += " steps={0:<6.2f}".format((step / args.update_batch) / 1000)
         log_string += " lr={0:<9.7f}".format(lr)
@@ -649,8 +650,11 @@ def train():
       eval_now = True
     if eof:
       eval_now = True
-    if new_lan_warm and (step / args.update_batch) % args.eval_every == 100:
-      eval_now = True
+    if hparams.new_lan_warm:
+      if (step / args.update_batch) % args.eval_every == 100:
+        eval_now = True
+      else:
+        eval_now = False
     if eval_now:
       based_on_bleu = args.eval_bleu and best_val_ppl[0] is not None and best_val_ppl[0] <= args.ppl_thresh
       with torch.no_grad():
@@ -704,15 +708,17 @@ def train():
           for p_p, p_q in zip(model.parameters(), model_q.parameters()):
             p_q.data.copy_(p_p.data)
           best_val_ppl_q[data_idx] = ppl_list[1]
-      if new_lan_warm and (step / args.update_batch) % args.eval_every == 100:
-        new_lan_warm = False
-      if (not eop) and eof: new_lan_warm = True
+      if hparams.new_lan_warm and (step / args.update_batch) % args.eval_every == 100:
+        hparams.new_lan_warm = False
+      if (not eop) and eof: hparams.new_lan_warm = True
       if save_p:
         save_checkpoint([step, best_val_ppl, best_val_bleu, cur_attempt, lr], model, optim, hparams, args.output_dir, model_q, optim_q)
       elif not args.lr_schedule and step >= hparams.n_warm_ups:
-        if new_lan_warm and (step / args.update_batch) % 500 == 0:
+        if hparams.new_lan_warm and (step / args.update_batch) % 500 == 0:
+          cur_attempt -= 1
           pass
         elif eof:
+          cur_attempt -= 1
           pass
         else:
           lr = lr * args.lr_dec
