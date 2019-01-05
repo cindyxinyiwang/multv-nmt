@@ -193,6 +193,7 @@ parser.add_argument("--exclude_q_idx", type=str, default="", help="indices to ig
 parser.add_argument("--exclude_weight_idx", type=str, default="0", help="indices to ignore for weighted model update")
 parser.add_argument("--exchange_q", type=int, default=1, help="whether to update q from p")
 parser.add_argument("--new_lan_warm_step", type=int, default=100, help="steps of new lan warmup")
+parser.add_argument("--seg_num_weight", type=int, default=0, help="weight segments in each batch")
 args = parser.parse_args()
 
 if args.bpe_ngram: args.n = None
@@ -416,7 +417,8 @@ def train():
       mask_weight=args.mask_weight,
       exclude_q_idx=args.exclude_q_idx,
       exclude_weight_idx=args.exclude_weight_idx,
-      exchange_q=args.exchange_q
+      exchange_q=args.exchange_q,
+      seg_num_weight=args.seg_num_weight,
     )
   # build or load model
   print("-" * 80)
