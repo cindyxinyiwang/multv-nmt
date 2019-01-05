@@ -108,19 +108,22 @@ class MultDataUtil(object):
       sim_score = []
       with open(sim_file) as myfile:
         for line in myfile:
-          if data_idx < 1:
-            sim_score.append(0)
+          if self.hparams.sim_rank:
+            sim_score.append(self.hparams.sim_rank[data_idx])
           else:
-            sim_score.append(float(line.strip()))
+            if data_idx < 1:
+              sim_score.append(0)
+            else:
+              sim_score.append(float(line.strip()))
 
           #if data_idx <= 1:
           #  sim_score.append(3.0)
           #elif data_idx == 2:
-          #  sim_score.append(0)
+          #  sim_score.append(-1)
           #elif data_idx == 3:
-          #  sim_score.append(2.0)
-          #else:
           #  sim_score.append(1.0)
+          #else:
+          #  sim_score.append(0.0)
 
           #sim_score.append(float(line.strip()))
       for i, y in enumerate(y_train):
@@ -301,13 +304,13 @@ class MultDataUtil(object):
         for step_b, batch_idx in enumerate(np.random.permutation(len(self.start_indices[data_idx]))):
 
           step += 1
-          if self.hparams.new_lan_warm:
-            cached.append(batch_idx)
-          if cached and not self.hparams.new_lan_warm:
-            while cached:
-              idx = cached[-1]
-              cached.pop()
-              yield self.yield_data(data_idx, batch_idx, x_train, x_char_kv, y_train, step_b, x_rank)
+          #if self.hparams.new_lan_warm:
+          #  cached.append(batch_idx)
+          #if cached and not self.hparams.new_lan_warm:
+          #  while cached:
+          #    idx = cached[-1]
+          #    cached.pop()
+          #    yield self.yield_data(data_idx, batch_idx, x_train, x_char_kv, y_train, step_b, x_rank)
           yield self.yield_data(data_idx, batch_idx, x_train, x_char_kv, y_train, step_b, x_rank)
  
   def yield_data(self, data_idx, batch_idx, x_train, x_char_kv, y_train, step, x_train_rank):
@@ -355,6 +358,8 @@ class MultDataUtil(object):
       idxes.append(data_idx)
     else:
       idxes.append(1)
+    if len(self.hparams.dev_src_file_list) == 1:
+      idxes = [0]
     while True:
       #for data_idx in range(len(self.hparams.dev_src_file_list)):
       for data_idx in idxes:

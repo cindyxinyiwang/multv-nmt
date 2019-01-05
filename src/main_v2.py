@@ -191,7 +191,8 @@ parser.add_argument("--compute_ngram", action="store_true", help="max layer to s
 parser.add_argument("--mask_weight", type=float, default=0., help="min weight to keep the instance")
 parser.add_argument("--exclude_q_idx", type=str, default="", help="indices to ignore for q model update")
 parser.add_argument("--exclude_weight_idx", type=str, default="0", help="indices to ignore for weighted model update")
-parser.add_argument("--exchange_q", type=int, default=1., help="whether to update q from p")
+parser.add_argument("--exchange_q", type=int, default=1, help="whether to update q from p")
+parser.add_argument("--new_lan_warm_step", type=int, default=100, help="steps of new lan warmup")
 args = parser.parse_args()
 
 if args.bpe_ngram: args.n = None
@@ -452,7 +453,7 @@ def train():
     optim_q.load_state_dict(optimizer_state_q)
 
     extra_file_name = os.path.join(args.output_dir, "extra.pt")
-    step, best_val_ppl, best_val_bleu, cur_attempt, lr = torch.load(extra_file_name)
+    step, best_val_ppl, best_val_bleu, best_val_ppl_q, best_val_bleu_q, cur_attempt, lr = torch.load(extra_file_name)
     cur_attempt = 0
   else:
     if args.pretrained_model:
@@ -520,6 +521,7 @@ def train():
   epoch = 0
   tr_loss, tr_loss_q, update_batch_size = None, 0, 0
   hparams.new_lan_warm = False
+  cur_new_lan_step = 0
   for (x_train, x_mask, x_count, x_len, x_pos_emb_idxs, y_train, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_train_char_sparse, y_train_char_sparse, eop, eof, file_idx, x_rank) in data.next_train():
     step += 1
     target_words += (y_count - batch_size)
@@ -529,7 +531,8 @@ def train():
     if not hparams.new_lan_warm:
       logits = model.forward(x_train, x_mask, x_len, x_pos_emb_idxs, y_train[:,:-1], y_mask[:,:-1], y_len, y_pos_emb_idxs, x_train_char_sparse, y_train_char_sparse, file_idx=file_idx, step=step, x_rank=x_rank)
       logits = logits.view(-1, hparams.trg_vocab_size)
-    
+    else:
+      cur_new_lan_step += 1
     #if data_idx > -1:
     if data_idx not in hparams.exclude_q_idx:
       logits_q = model_q.forward(x_train, x_mask, x_len, x_pos_emb_idxs, y_train[:,:-1], y_mask[:,:-1], y_len, y_pos_emb_idxs, x_train_char_sparse, y_train_char_sparse, file_idx=file_idx, step=step, x_rank=x_rank)
@@ -651,8 +654,11 @@ def train():
     if eof:
       eval_now = True
     if hparams.new_lan_warm:
-      if (step / args.update_batch) % args.eval_every == 100:
+      if cur_new_lan_step == args.new_lan_warm_step:
         eval_now = True
+        cur_new_lan_step = 0
+        hparams.new_lan_warm = False
+        step -= args.new_lan_warm_step
       else:
         eval_now = False
     if eval_now:
@@ -708,11 +714,12 @@ def train():
           for p_p, p_q in zip(model.parameters(), model_q.parameters()):
             p_q.data.copy_(p_p.data)
           best_val_ppl_q[data_idx] = ppl_list[1]
-      if hparams.new_lan_warm and (step / args.update_batch) % args.eval_every == 100:
-        hparams.new_lan_warm = False
+      #if hparams.new_lan_warm and (step / args.update_batch) % args.eval_every == args.new_lan_warm_step:
+      #  hparams.new_lan_warm = False
+      #  step -= args.new_lan_warm_step
       if (not eop) and eof: hparams.new_lan_warm = True
       if save_p:
-        save_checkpoint([step, best_val_ppl, best_val_bleu, cur_attempt, lr], model, optim, hparams, args.output_dir, model_q, optim_q)
+        save_checkpoint([step, best_val_ppl, best_val_bleu, best_val_ppl_q, best_val_bleu_q, cur_attempt, lr], model, optim, hparams, args.output_dir, model_q, optim_q)
       elif not args.lr_schedule and step >= hparams.n_warm_ups:
         if hparams.new_lan_warm and (step / args.update_batch) % 500 == 0:
           cur_attempt -= 1

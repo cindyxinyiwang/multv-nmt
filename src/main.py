@@ -175,6 +175,7 @@ parser.add_argument("--cons_vocab", action="store_true", help="max layer to sep 
 parser.add_argument("--sel", type=str, default="", help="selected data extension")
 parser.add_argument("--sample_select", action="store_true", help="max layer to sep loc")
 parser.add_argument("--sim", type=str, default="", help="selected data extension")
+parser.add_argument("--sim_rank", type=str, default="", help="selected data extension")
 parser.add_argument("--sample_select_tau_max", type=float, default=1., help="selected data extension")
 parser.add_argument("--sample_select_tau_min", type=float, default=1., help="selected data extension")
 parser.add_argument("--sample_select_tau_step", type=int, default=1., help="selected data extension")
@@ -394,6 +395,7 @@ def train():
       sel=args.sel,
       sample_select=args.sample_select,
       sim=args.sim,
+      sim_rank=args.sim_rank,
       sample_select_tau_max=args.sample_select_tau_max,
       sample_select_tau_min=args.sample_select_tau_min,
       sample_select_tau_step=args.sample_select_tau_step,
@@ -512,7 +514,7 @@ def train():
   baseline_loss = None
   tr_loss, update_batch_size = None, 0
   s0_trainable_params = []
-  for (x_train, x_mask, x_count, x_len, x_pos_emb_idxs, y_train, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_train_char_sparse, y_train_char_sparse, eop, file_idx, x_rank) in data.next_train():
+  for (x_train, x_mask, x_count, x_len, x_pos_emb_idxs, y_train, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_train_char_sparse, y_train_char_sparse, eop, eof, file_idx, x_rank) in data.next_train():
     step += 1
     target_words += (y_count - batch_size)
     logits = model.forward(x_train, x_mask, x_len, x_pos_emb_idxs, y_train[:,:-1], y_mask[:,:-1], y_len, y_pos_emb_idxs, x_train_char_sparse, y_train_char_sparse, file_idx=file_idx, step=step, x_rank=x_rank)
