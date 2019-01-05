@@ -513,6 +513,7 @@ def train():
   dev_zero = args.dev_zero
   baseline_loss = None
   tr_loss, update_batch_size = None, 0
+  hparams.new_lan_warm = False
   s0_trainable_params = []
   for (x_train, x_mask, x_count, x_len, x_pos_emb_idxs, y_train, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_train_char_sparse, y_train_char_sparse, eop, eof, file_idx, x_rank) in data.next_train():
     step += 1

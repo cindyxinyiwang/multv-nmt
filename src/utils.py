@@ -25,7 +25,6 @@ def get_criterion(hparams):
 def get_performance(crit, logits, labels, hparams, sum_loss=True, logits_q=None, batch_size=None):
   if logits_q is not None:
     _, trg_vocab_size = logits.size()
-    if hparams.seg_num_weight > 0: batch_size= min(hparams.seg_num_weight, batch_size)
     loss_p = crit(logits, labels).view(batch_size, -1).sum(-1)
     loss_q = crit(logits_q, labels).view(batch_size, -1).sum(-1)
     weight = torch.exp(loss_p.data - loss_q.data)
