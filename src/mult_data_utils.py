@@ -104,28 +104,28 @@ class MultDataUtil(object):
     trg2srcs = {}
     for data_idx in range(self.hparams.lan_size):
       x_train, y_train, x_char_kv, x_len, x_rank = self._build_parallel(self.train_src_file_list[data_idx], self.train_trg_file_list[data_idx], data_idx, outprint=True)
-      sim_file = "data/{}_eng/ted-train.mtok.{}.{}".format(self.lans[data_idx], self.lans[data_idx], self.hparams.sim)
-      sim_score = []
-      with open(sim_file) as myfile:
-        for line in myfile:
-          if self.hparams.sim_rank:
-            sim_score.append(self.hparams.sim_rank[data_idx])
-          else:
+      if self.hparams.sim_rank:
+        sim_score = [self.hparams.sim_rank[data_idx] for _ in range(len(x_len))]
+      else:
+        sim_file = "data/{}_eng/ted-train.mtok.{}.{}".format(self.lans[data_idx], self.lans[data_idx], self.hparams.sim)
+        sim_score = []
+        with open(sim_file) as myfile:
+          for line in myfile:
             if data_idx < 1:
               sim_score.append(0)
             else:
               sim_score.append(float(line.strip()))
 
-          #if data_idx <= 1:
-          #  sim_score.append(3.0)
-          #elif data_idx == 2:
-          #  sim_score.append(-1)
-          #elif data_idx == 3:
-          #  sim_score.append(1.0)
-          #else:
-          #  sim_score.append(0.0)
+            #if data_idx <= 1:
+            #  sim_score.append(3.0)
+            #elif data_idx == 2:
+            #  sim_score.append(-1)
+            #elif data_idx == 3:
+            #  sim_score.append(1.0)
+            #else:
+            #  sim_score.append(0.0)
 
-          #sim_score.append(float(line.strip()))
+            #sim_score.append(float(line.strip()))
       for i, y in enumerate(y_train):
         y = tuple(y)
         if not y in trg2srcs:
@@ -229,8 +229,7 @@ class MultDataUtil(object):
           eop = True
         else:
           eop = False
-       
-        yield x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, None, eop, train_file_index
+        yield x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, None, eop, eop, train_file_index, []
 
   def get_char_emb(self, word_idx, is_trg=True):
     if is_trg:
@@ -272,6 +271,9 @@ class MultDataUtil(object):
         x_train, y_train, x_char_kv, x_len, x_rank = self._build_parallel(self.train_src_file_list[data_idx], self.train_trg_file_list[data_idx], data_idx, outprint=(self.hparams.sample_load or len(self.start_indices[data_idx]) == 0))
         #x_train, y_train, x_char_kv, x_len, x_rank = self._build_parallel(self.train_src_file_list[data_idx], self.train_trg_file_list[data_idx], outprint=True)
         # set batcher indices once
+        if len(x_len) == 0:
+          print("skipping 0 size file {}".format(self.train_src_file_list[data_idx]))
+          continue
         if not self.start_indices[data_idx] or self.hparams.sample_load:
           start_indices, end_indices = [], []
           if self.hparams.batcher == "word":

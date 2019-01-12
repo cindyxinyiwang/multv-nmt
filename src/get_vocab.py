@@ -1,7 +1,10 @@
 import sys
+import io
+
+input_stream = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8")
 
 vocab = {}
-for line in sys.stdin:
+for line in input_stream:
   toks = line.split()
   for t in toks:
     if t not in vocab:

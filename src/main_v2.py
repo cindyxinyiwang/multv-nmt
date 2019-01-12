@@ -654,8 +654,8 @@ def train():
     if (step / args.update_batch) % args.eval_every == 0:
       eval_now = True
       dec_now = True
-    #if eof:
-    #  eval_now = True
+    if eof:
+      eval_now = True
     if hparams.new_lan_warm:
       if cur_new_lan_step == args.new_lan_warm_step:
         eval_now = True
@@ -668,7 +668,7 @@ def train():
       based_on_bleu = args.eval_bleu and best_val_ppl[0] is not None and best_val_ppl[0] <= args.ppl_thresh
       with torch.no_grad():
         val_ppl, val_bleu, ppl_list, bleu_list = eval(model, data, crit, step, hparams, data_idx, eval_bleu=based_on_bleu, valid_batch_size=args.valid_batch_size, tr_logits=logits)	
-        val_ppl_q, val_bleu_q, ppl_list_q, bleu_list_q = eval(model_q, data, crit, step, hparams, data_idx, eval_bleu=based_on_bleu, valid_batch_size=args.valid_batch_size, tr_logits=logits)	
+        #val_ppl_q, val_bleu_q, ppl_list_q, bleu_list_q = eval(model_q, data, crit, step, hparams, data_idx, eval_bleu=based_on_bleu, valid_batch_size=args.valid_batch_size, tr_logits=logits)	
       if based_on_bleu:
         if best_val_bleu[0] is None or best_val_bleu[0] <= bleu_list[0]:
           save_p = True 
@@ -678,24 +678,24 @@ def train():
         else:
           save_p = False
           cur_attempt += 1
-        if best_val_bleu_q[data_idx] is None or best_val_bleu_q[data_idx] >= bleu_list_q[1]:
-          if dec_now:
-            best_val_bleu_q[data_idx] = bleu_list_q[1]
+        #if best_val_bleu_q[data_idx] is None or best_val_bleu_q[data_idx] >= bleu_list_q[1]:
+        #  if dec_now:
+        #    best_val_bleu_q[data_idx] = bleu_list_q[1]
 
-        if bleu_list_q[0] > best_val_bleu[0]:
-          print("update p_model with q_model..")
-          for p_p, p_q in zip(model.parameters(), model_q.parameters()):
-            p_p.data.copy_(p_q.data)
-          if dec_now:
-            best_val_bleu[0] = bleu_list_q[0]
-            cur_attempt = 0
-          save_p = True
-        if args.exchange_q and bleu_list[1] > best_val_bleu_q[data_idx]:
-          print("update q_model with p_model..")
-          for p_p, p_q in zip(model.parameters(), model_q.parameters()):
-            p_q.data.copy_(p_p.data)
-          if dec_now:
-            best_val_bleu_q[data_idx] = bleu_list[1]
+        #if bleu_list_q[0] > best_val_bleu[0]:
+        #  print("update p_model with q_model..")
+        #  for p_p, p_q in zip(model.parameters(), model_q.parameters()):
+        #    p_p.data.copy_(p_q.data)
+        #  if dec_now:
+        #    best_val_bleu[0] = bleu_list_q[0]
+        #    cur_attempt = 0
+        #  save_p = True
+        #if args.exchange_q and bleu_list[1] > best_val_bleu_q[data_idx]:
+        #  print("update q_model with p_model..")
+        #  for p_p, p_q in zip(model.parameters(), model_q.parameters()):
+        #    p_q.data.copy_(p_p.data)
+        #  if dec_now:
+        #    best_val_bleu_q[data_idx] = bleu_list[1]
       else:
         if best_val_ppl[0] is None or best_val_ppl[0] >= ppl_list[0]:
           save_p = True
@@ -705,30 +705,33 @@ def train():
         else:
           save_p = False
           cur_attempt += 1
-        if best_val_ppl_q[data_idx] is None or best_val_ppl_q[data_idx] >= ppl_list_q[1]:
-          if dec_now:
-            best_val_ppl_q[data_idx] = ppl_list_q[1]
+        #if best_val_ppl_q[data_idx] is None or best_val_ppl_q[data_idx] >= ppl_list_q[1]:
+        #  if dec_now:
+        #    best_val_ppl_q[data_idx] = ppl_list_q[1]
 
-        if ppl_list_q[0] < best_val_ppl[0]:
-          print(ppl_list_q[0], best_val_ppl[0])
-          print("update p_model with q_model..")
-          for p_p, p_q in zip(model.parameters(), model_q.parameters()):
-            p_p.data.copy_(p_q.data)
-          if dec_now:
-            best_val_ppl[0] = ppl_list_q[0]
-            cur_attempt = 0 
-          save_p = True
-        if args.exchange_q and len(ppl_list) > 1 and ppl_list[1] < best_val_ppl_q[data_idx]:
-          print(ppl_list[1], best_val_ppl_q[data_idx])
-          print("update q_model with p_model..")
-          for p_p, p_q in zip(model.parameters(), model_q.parameters()):
-            p_q.data.copy_(p_p.data)
-          if dec_now:
-            best_val_ppl_q[data_idx] = ppl_list[1]
+        #if ppl_list_q[0] < best_val_ppl[0]:
+        #  print(ppl_list_q[0], best_val_ppl[0])
+        #  print("update p_model with q_model..")
+        #  for p_p, p_q in zip(model.parameters(), model_q.parameters()):
+        #    p_p.data.copy_(p_q.data)
+        #  if dec_now:
+        #    best_val_ppl[0] = ppl_list_q[0]
+        #    cur_attempt = 0 
+        #  save_p = True
+        #if args.exchange_q and len(ppl_list) > 1 and ppl_list[1] < best_val_ppl_q[data_idx]:
+        #  print(ppl_list[1], best_val_ppl_q[data_idx])
+        #  print("update q_model with p_model..")
+        #  for p_p, p_q in zip(model.parameters(), model_q.parameters()):
+        #    p_q.data.copy_(p_p.data)
+        #  if dec_now:
+        #    best_val_ppl_q[data_idx] = ppl_list[1]
       #if hparams.new_lan_warm and (step / args.update_batch) % args.eval_every == args.new_lan_warm_step:
       #  hparams.new_lan_warm = False
       #  step -= args.new_lan_warm_step
-      if (not eop) and eof: hparams.new_lan_warm = True
+      if (not eop) and eof:
+        if data_idx == 1: 
+          hparams.new_lan_warm = True
+        #hparams.new_lan_warm = True
       if save_p:
         save_checkpoint([step, best_val_ppl, best_val_bleu, best_val_ppl_q, best_val_bleu_q, cur_attempt, lr], model, optim, hparams, args.output_dir, model_q, optim_q)
       elif not args.lr_schedule and step >= hparams.n_warm_ups:
