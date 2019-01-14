@@ -14,13 +14,16 @@ def get_lan_order(base_lan):
   #exit(0)
   return [kv[0] for kv in ordered_lans[:-2]][::-1]
 
-tar_vocab = "data/glg_eng/ted-train.mtok.glg.ochar4vocab"
-tar_eng = "data/ces_eng/ted-train.mtok.spm8000.eng"
+IL = "slk"
+RL = "ces"
 
+tar_vocab = "data/{}_eng/ted-train.mtok.{}.ochar4vocab".format(IL, IL)
+tar_eng = "data/{}_eng/ted-train.mtok.spm8000.eng".format(RL)
+
+langs = get_lan_order(IL)
 #aze
 #langs = ["por", "ces", "rus"]
 #langs = ["ind", "dan", "epo", "est", "eus", "swe"]
-langs = get_lan_order("slk")
 #bel
 #langs = ["tur", "por", "ces"]
 #langs = ["ukr", "bul", "mkd","kaz","srp"]
@@ -39,8 +42,8 @@ data_outtrgs = []
 for lan in langs:
   data_inputs.append("data/{}_eng/ted-train.mtok.{}".format(lan, lan))
   data_trgs.append("data/{}_eng/ted-train.mtok.spm8000.eng".format(lan))
-  data_outputs.append("data/{}_eng/ted-train.mtok.{}.slkseleng".format(lan, lan))
-  data_outtrgs.append("data/{}_eng/ted-train.mtok.spm8000.eng.slkseleng".format(lan))
+  data_outputs.append("data/{}_eng/ted-train.mtok.{}.{}seleng".format(lan, lan, IL))
+  data_outtrgs.append("data/{}_eng/ted-train.mtok.spm8000.eng.{}seleng".format(lan, IL))
 
 #for inp, out, trg, outtrg, count in zip(data_inputs, data_outputs, data_trgs, data_outtrgs, langs_count):
 #  inp = np.array(open(inp, 'r').readlines())

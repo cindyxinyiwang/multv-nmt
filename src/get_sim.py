@@ -22,15 +22,15 @@ cuda = True
 
 def prob_by_rank():
   trg2srcs = {}
+  t = 0.5
   # aze
-  #sim_rank = [ 48.36, 26.5, 25.12, 23.94, 23.89, 23.78, 23.31]
+  #sim_rank = [48.36, 26.5, 25.12, 23.94, 23.89, 23.78, 23.31]
   # glg
   #sim_rank = [66.02, 72.04, 52.27, 45.33, 45.11, 39.85]
   #sim_rank = [72.04, 66.02, 52.27, 45.33, 45.11, 39.85]
-  #sim_rank = [i/0.5 for i in sim_rank]
   # slk
   sim_rank = [63.31, 42.56, 40.76, 39.41, 36.73]
-  sim_rank = [i/0.5 for i in sim_rank]
+  sim_rank = [i/t for i in sim_rank]
   out_probs = []
   for i, lan in enumerate(lan_lists):
     trg_file = "data/{}_eng/ted-train.mtok.spm8000.eng".format(lan)
@@ -52,10 +52,10 @@ def prob_by_rank():
       out_probs[s[0]][s[1]] = s[2]
 
   for i, lan in enumerate(lan_lists):
-    out = open("data/{}_eng/ted-train.mtok.{}.prob-rank-{}-t0.5".format(lan, lan, base_lan), "w")
+    out = open("data/{}_eng/ted-train.mtok.{}.prob-rank-{}-t{}".format(lan, lan, base_lan, t), "w")
     for p in out_probs[i]:
       out.write("{}\n".format(p))
-  out = open("data/{}_eng/ted-train.mtok.{}.prob-rank-{}-t0.5".format(base_lan, base_lan, base_lan), "w")
+  out = open("data/{}_eng/ted-train.mtok.{}.prob-rank-{}-t{}".format(base_lan, base_lan, base_lan, t), "w")
   base_lines = len(open( "data/{}_eng/ted-train.mtok.spm8000.eng".format(base_lan)).readlines())
   for i in range(base_lines):
     out.write("{}\n".format(1))
