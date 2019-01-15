@@ -278,18 +278,46 @@ class MultDataUtil(object):
           start_indices, end_indices = [], []
           if self.hparams.batcher == "word":
             start_index, end_index, count = 0, 0, 0
+            #lines, max_src_count, max_trg_count = 0, 0, 0
             while True:
               count += (x_len[end_index] + len(y_train[end_index]))
+              #max_src_count = max(max_src_count, x_len[end_index])
+              #max_trg_count = max(max_trg_count, len(y_train[end_index]))
               end_index += 1
+              #lines += 1
+              #count = lines * (max_src_count + max_trg_count)
               if end_index >= len(x_len):
-                start_indices.append(start_index)
-                end_indices.append(end_index)
+                if self.hparams.update_batch > 1:
+                  interv = (end_index - start_index) // self.hparams.update_batch
+                  start_indices_list = [start_index + i * interv for i in range(self.hparams.update_batch)]
+                  for i in range(self.hparams.update_batch-1):
+                    if start_indices_list[i] < start_indices_list[i+1]-1:
+                      start_indices.append(start_indices_list[i]) 
+                      end_indices.append(start_indices_list[i+1]-1) 
+                  if start_indices_list[-1] < end_index:
+                    start_indices.append(start_indices_list[-1]) 
+                    end_indices.append(end_index) 
+                else: 
+                  start_indices.append(start_index)
+                  end_indices.append(end_index)
                 break
-              if count > self.hparams.batch_size: 
-                start_indices.append(start_index)
-                end_indices.append(end_index)
+              if count > self.hparams.batch_size:
+                if self.hparams.update_batch > 1:
+                  interv = (end_index - start_index) // self.hparams.update_batch
+                  start_indices_list = [start_index + i * interv for i in range(self.hparams.update_batch)]
+                  for i in range(self.hparams.update_batch-1):
+                    if start_indices_list[i] < start_indices_list[i+1]-1:
+                      start_indices.append(start_indices_list[i]) 
+                      end_indices.append(start_indices_list[i+1]-1) 
+                  if start_indices_list[-1] < end_index:
+                    start_indices.append(start_indices_list[-1]) 
+                    end_indices.append(end_index)
+                else: 
+                  start_indices.append(start_index)
+                  end_indices.append(end_index)
                 count = 0
                 start_index = end_index
+                #lines, max_src_count, max_trg_count = 0, 0, 0
           elif self.hparams.batcher == "sent":
             start_index, end_index, count = 0, 0, 0
             while end_index < len(x_len):
@@ -304,7 +332,6 @@ class MultDataUtil(object):
           self.end_indices[data_idx] = end_indices
         cached = []
         for step_b, batch_idx in enumerate(np.random.permutation(len(self.start_indices[data_idx]))):
-
           step += 1
           #if self.hparams.new_lan_warm:
           #  cached.append(batch_idx)
@@ -570,15 +597,19 @@ class MultDataUtil(object):
           skip_line_count += 1
           continue
       src_lens.append(len(src_tokens))
-      trg_indices = [self.hparams.bos_id] 
+      trg_indices = [self.hparams.bos_id]
+      add_indice = False 
       if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
         src_char_kv = [{0:0}]
       else:
+        add_indice = True
+      if ( not add_indice and self.hparams.uni) or add_indice:
         src_indices = [self.hparams.bos_id] 
       if self.hparams.semb_num > 1:
         src_ranks = [0]
       for src_tok in src_tokens:
         # calculate char ngram emb for src_tok
+        add_indice = False 
         if self.hparams.char_ngram_n > 0:
           ngram_counts = self._get_ngram_counts(src_tok)
           src_char_kv.append(ngram_counts)
@@ -586,6 +617,8 @@ class MultDataUtil(object):
           ngram_counts = self._get_bpe_ngram_counts(src_tok, self.src_char_i2w, self.src_char_w2i)
           src_char_kv.append(ngram_counts)
         else:
+          add_indice = True 
+        if ( not add_indice and self.hparams.uni) or add_indice:
           if src_tok not in self.src_w2i:
             src_indices.append(self.hparams.unk_id)
             src_unk_count += 1
@@ -614,10 +647,13 @@ class MultDataUtil(object):
 
       trg_indices.append(self.hparams.eos_id)
       trg_data.append(trg_indices)
+      add_indice = False
       if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
         src_char_kv.append({0:0})
         src_char_kv_data.append(src_char_kv)
       else:
+        add_indice = True
+      if ( not add_indice and self.hparams.uni) or add_indice:
         src_indices.append(self.hparams.eos_id)
         src_data.append(src_indices)
       if self.hparams.semb_num > 1:

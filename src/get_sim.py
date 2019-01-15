@@ -9,27 +9,35 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 from mult_data_utils import MultDataUtil
-
+from select_sent import get_lan_order
 
 vocab_size = 8000
-base_lan = "slk"
-#lan_lists = ["rus", "por", "ces"]
+base_lan = "aze"
+#lan_lists = ["ukr", "rus", "bul", "mkd", "kaz", "mon"]
 #lan_lists = ["aze", "tur", "rus", "por", "ces"]
 #lan_lists = ["tur", "ind", "msa", "epo", "sqi", "swe", "dan"]
 #lan_lists = ["por", "spa", "ita", "fra", "ron", "epo"]
-lan_lists = ["ces", "slv", "hrv", "bos", "srp"]
+#lan_lists = ["ces", "slv", "hrv", "bos", "srp"]
 cuda = True
 
 def prob_by_rank():
   trg2srcs = {}
-  t = 0.5
+  t = 1
+  k = 58
+  lan_order = get_lan_order(base_lan, lan_dist_file="ted-train-vocab.mtok.sim-spm8000.graph")[-k:-1]
+  lan_lists = [kv[0] for kv in lan_order]
+  sim_rank = [kv[1]/100 for kv in lan_order]
+  print(lan_lists)
+  print(sim_rank)
   # aze
   #sim_rank = [48.36, 26.5, 25.12, 23.94, 23.89, 23.78, 23.31]
+  # bel
+  #sim_rank = [34.27, 32.09, 25.73, 23.99, 19.41, 16.84]
   # glg
   #sim_rank = [66.02, 72.04, 52.27, 45.33, 45.11, 39.85]
   #sim_rank = [72.04, 66.02, 52.27, 45.33, 45.11, 39.85]
   # slk
-  sim_rank = [63.31, 42.56, 40.76, 39.41, 36.73]
+  #sim_rank = [63.31, 42.56, 40.76, 39.41, 36.73]
   sim_rank = [i/t for i in sim_rank]
   out_probs = []
   for i, lan in enumerate(lan_lists):
@@ -52,10 +60,10 @@ def prob_by_rank():
       out_probs[s[0]][s[1]] = s[2]
 
   for i, lan in enumerate(lan_lists):
-    out = open("data/{}_eng/ted-train.mtok.{}.prob-rank-{}-t{}".format(lan, lan, base_lan, t), "w")
+    out = open("data/{}_eng/ted-train.mtok.spm8000.{}.prob-rank-{}-t{}-k{}".format(lan, lan, base_lan, t, k), "w")
     for p in out_probs[i]:
       out.write("{}\n".format(p))
-  out = open("data/{}_eng/ted-train.mtok.{}.prob-rank-{}-t{}".format(base_lan, base_lan, base_lan, t), "w")
+  out = open("data/{}_eng/ted-train.mtok.spm8000.{}.prob-rank-{}-t{}-k{}".format(base_lan, base_lan, base_lan, t, k), "w")
   base_lines = len(open( "data/{}_eng/ted-train.mtok.spm8000.eng".format(base_lan)).readlines())
   for i in range(base_lines):
     out.write("{}\n".format(1))
@@ -249,10 +257,45 @@ def sim_vocab_all(lan_list_file):
       out.write("{} {} {}\n".format(base_lan, lan, total_sim))
       print("process ref lan {}".format(lan))
 
+def sim_sw_vocab_all(lan_list_file):
+  out = open("ted-train-vocab.mtok.sim-spm8000.graph", "w")
+  lan_lists = []
+  with open(lan_list_file, 'r') as myfile:
+    for line in myfile:
+      lan_lists.append(line.strip())
+  print("building graph with {} nodes..".format(len(lan_lists)))
+
+  for base_lan in lan_lists:
+  #for base_lan in ["bel"]:
+    base_vocab = "data/{}_eng/ted-train.mtok.spm8000.{}.vocab".format(base_lan, base_lan)
+    if not os.path.isfile(base_vocab):
+      print("vocab for {} not exist..".format(base_lan))
+      continue
+    base_vocab_set = set([])
+    with open(base_vocab, "r") as myfile:
+      count = 0
+      for line in myfile:
+        base_vocab_set.add(line.strip())
+        count += 1
+        if count == 10000: break 
+
+    print("process base lan {}".format(base_lan))
+    for lan in lan_lists:
+      train_vocab = open("data/{}_eng/ted-train.mtok.spm8000.{}.vocab".format(lan, lan), "r")
+      total_sim, count = 0, 0
+      for line in train_vocab:
+        count += 1
+        word = line.strip()
+        if word in base_vocab_set: total_sim += 1
+        if count == 10000: break
+      out.write("{} {} {}\n".format(base_lan, lan, total_sim))
+      print("process ref lan {}".format(lan))
+
 
 
 if __name__ == "__main__":
   prob_by_rank()
+  #sim_sw_vocab_all("langs.txt")
   #sim_vocab_all("langs.txt")
   #sim_gram_all("langs.txt")
   #prob_by_classify()

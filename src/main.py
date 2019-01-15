@@ -406,6 +406,7 @@ def train():
       sample_load=args.sample_load,
       sample_prob_list=args.sample_prob_list,
       compute_ngram=args.compute_ngram,
+      update_batch=args.update_batch,
     )
   # build or load model
   print("-" * 80)

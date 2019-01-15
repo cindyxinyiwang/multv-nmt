@@ -392,7 +392,7 @@ class uniEncoder(nn.Module):
       self.dropout = self.dropout.cuda()
       self.bridge = self.bridge.cuda()
 
-  def forward(self, x_train, x_len, x_train_char=None, file_idx=None):
+  def forward(self, x_train_char, x_len, file_idx=None, x_rank=None):
     """Performs a forward pass.
     Args:
       x_train: Torch Tensor of size [batch_size, max_len]
