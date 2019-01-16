@@ -167,7 +167,8 @@ def get_grad_cos(model, data, crit):
       data_count += 1
       for j in range(1, model.hparams.lan_size):
         dist = 0
-        #print(data.lans[j])
+        if data_count == 1:
+          print(data.lans[j])
         for k in grads[0].keys():
           p0 = grads[0][k]
           p1 = grads[j][k]
@@ -177,7 +178,8 @@ def get_grad_cos(model, data, crit):
 
           #if "enc" in k or "decoder.attention" in k:
           dist = dist + cosine.item()
-          #print("{} : {}".format(k, cosine))
+          if data_count == 1:
+            print("{} : {}".format(k, cosine))
         dists[j] += dist
       grads = []
       if data_count == 5:

@@ -95,17 +95,27 @@ class MultDataUtil(object):
 
   def get_trg2srcs(self):
     trg2srcs = {}
-    for data_idx in range(self.hparams.lan_size):
+    x_train, y_train, x_char_kv, x_len, x_rank = self._build_parallel(self.train_src_file_list[0], self.train_trg_file_list[0], 0, outprint=True, not_sample=True)
+    for i, y in enumerate(y_train):
+      y = tuple(y)
+      if not y in trg2srcs:
+        trg2srcs[y] = [[[] for _ in range(self.hparams.lan_size)], [[] for _ in range(self.hparams.lan_size)], [0 for _ in range(self.hparams.lan_size)]]
+      if x_train:
+        trg2srcs[y][0][0] = x_train[i]
+      else:
+        trg2srcs[y][1][0] = x_char_kv[i]
+      trg2srcs[y][2][0] = x_len[i]
+
+    for data_idx in range(1, self.hparams.lan_size):
       x_train, y_train, x_char_kv, x_len, x_rank = self._build_parallel(self.train_src_file_list[data_idx], self.train_trg_file_list[data_idx], data_idx, outprint=True, not_sample=True)
       for i, y in enumerate(y_train):
         y = tuple(y)
-        if not y in trg2srcs:
-          trg2srcs[y] = [[[] for _ in range(self.hparams.lan_size)], [[] for _ in range(self.hparams.lan_size)], [0 for _ in range(self.hparams.lan_size)]]
-        if x_train:
-          trg2srcs[y][0][data_idx] = x_train[i]
-        else:
-          trg2srcs[y][1][data_idx] = x_char_kv[i]
-        trg2srcs[y][2][data_idx] = x_len[i]
+        if y in trg2srcs:
+          if x_train:
+            trg2srcs[y][0][data_idx] = x_train[i]
+          else:
+            trg2srcs[y][1][data_idx] = x_char_kv[i]
+          trg2srcs[y][2][data_idx] = x_len[i]
     shared_trgs = []
     for k, v in trg2srcs.items():
       skip = False
