@@ -10,6 +10,8 @@ import torch
 import torch.nn as nn
 import torch.nn.init as init
 
+
+
 def memReport():
   for obj in gc.get_objects():
     if torch.is_tensor(obj) or (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
@@ -123,3 +125,65 @@ def grad_clip(params, grad_bound=None):
         p.grad.data.mul_(clip_coef)
   return total_norm
 
+def get_grad_cos(model, data, crit):
+  i = 0
+  step = 0 
+  grads = []
+  dists = [100 for _ in range(model.hparams.lan_size)]
+  data_count = 0
+  for (x_train, x_mask, x_count, x_len, x_pos_emb_idxs, y_train, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_train_char_sparse, y_train_char_sparse, eop, eof, file_idx, x_rank) in data.next_train_select():
+    assert file_idx[0] == i % model.hparams.lan_size
+    i += 1
+    target_words = (y_count - batch_size)
+    logits = model.forward(x_train, x_mask, x_len, x_pos_emb_idxs, y_train[:,:-1], y_mask[:,:-1], y_len, y_pos_emb_idxs, x_train_char_sparse, y_train_char_sparse, file_idx=file_idx, step=step, x_rank=x_rank)
+    logits = logits.view(-1, model.hparams.trg_vocab_size)
+    labels = y_train[:,1:].contiguous().view(-1)
+      
+    cur_tr_loss, cur_tr_acc = get_performance(crit, logits, labels, model.hparams)
+    total_loss = cur_tr_loss.item()
+    total_corrects = cur_tr_acc.item()
+    cur_tr_loss.div_(batch_size)
+    cur_tr_loss.backward()
+    #print(file_idx[0])
+    #params = list(filter(lambda p: p.grad is not None, model.parameters()))
+    params_dict = model.state_dict()
+    params =  list(model.parameters())
+    #for k, v in params_dict.items():
+    #  print(k)
+    #  print(v[0])
+    #  break
+    #  print(v.size())
+    #for v in model.parameters():
+    #  print(v.size())
+    grad = {}
+    d = 0
+    for k, v in params_dict.items():
+      if params[d].grad is not None: 
+        grad[k] = params[d].grad.data.clone()
+        params[d].grad.data.zero_()
+      d += 1
+    grads.append(grad)
+    if file_idx[0] == model.hparams.lan_size-1:
+      data_count += 1
+      for j in range(1, model.hparams.lan_size):
+        dist = 0
+        #print(data.lans[j])
+        for k in grads[0].keys():
+          p0 = grads[0][k]
+          p1 = grads[j][k]
+          p0_unit = p0 / (p0.norm(2) + 1e-10)
+          p1_unit = p1 / (p1.norm(2) + 1e-10)
+          cosine = (p0_unit * p1_unit).sum()
+
+          #if "enc" in k or "decoder.attention" in k:
+          dist = dist + cosine.item()
+          #print("{} : {}".format(k, cosine))
+        dists[j] += dist
+      grads = []
+      if data_count == 5:
+        break
+  dists = [d / data_count for d in dists]
+  for j in range(1, model.hparams.lan_size):
+    print(data.lans[j])
+    print(dists[j])
+  data.update_prob_list(dists)

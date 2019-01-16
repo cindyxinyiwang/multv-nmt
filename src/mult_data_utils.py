@@ -52,11 +52,7 @@ class MultDataUtil(object):
             self.src_vocab_list.append(self.hparams.src_vocab_list[0].replace("LAN", lan))
           if self.hparams.sample_load:
             self.sample_prob_list.append(self.hparams.sample_prob_list.replace("LAN", lan))
-        #if self.hparams.cons_vocab:
-        #  if self.hparams.src_vocab_list:
-        #    self.src_vocab_list = self.src_vocab_list[:2]
-        #  if self.hparams.src_char_vocab_from:
-        #    self.src_char_vocab_from = self.src_char_vocab_from[:2]
+
         if self.hparams.select_data:
           for i in range(2,len(self.train_src_file_list)):
             self.train_src_file_list[i] = self.train_src_file_list[i] + "." + self.hparams.sel
@@ -88,71 +84,53 @@ class MultDataUtil(object):
       self.src_char_vsize = None
       setattr(self.hparams, 'src_char_vsize', None)
 
-    if (not self.hparams.decode) and (not self.hparams.sample_select):
+    if (not self.hparams.decode):
       self.start_indices = [[] for i in range(len(self.train_src_file_list))]
       self.end_indices = [[] for i in range(len(self.train_src_file_list))]
-      if self.hparams.balance_idx >= 0:
-        print("load balance data {}...".format(self.hparams.balance_idx))
-        self.bal_x_train, self.bal_y_train, self.bal_x_char_kv, self.bal_x_len, self.bal_x_rank = self._build_parallel(self.train_src_file_list[self.hparams.balance_idx], self.train_trg_file_list[self.hparams.balance_idx], outprint=True)
-    elif (not self.hparams.decode) and self.hparams.sample_select:
-      self.start_indices = []
-      self.end_indices = []     
+    if self.hparams.sample_select:
+      self.start_indices_shared = []
+      self.end_indices_shared = []     
       # {trg: [(src1, src_char1, src_len1, sim1), (src2, src_char1, src_len1, sim2), ..., srcn]}
-      self.trg2srcs = self.get_trg2srcs()
+      self.trg2srcs, self.shared_trgs = self.get_trg2srcs()
 
   def get_trg2srcs(self):
     trg2srcs = {}
     for data_idx in range(self.hparams.lan_size):
-      x_train, y_train, x_char_kv, x_len, x_rank = self._build_parallel(self.train_src_file_list[data_idx], self.train_trg_file_list[data_idx], data_idx, outprint=True)
-      if self.hparams.sim_rank:
-        sim_score = [self.hparams.sim_rank[data_idx] for _ in range(len(x_len))]
-      else:
-        sim_file = "data/{}_eng/ted-train.mtok.{}.{}".format(self.lans[data_idx], self.lans[data_idx], self.hparams.sim)
-        sim_score = []
-        with open(sim_file) as myfile:
-          for line in myfile:
-            if data_idx < 1:
-              sim_score.append(0)
-            else:
-              sim_score.append(float(line.strip()))
-
-            #if data_idx <= 1:
-            #  sim_score.append(3.0)
-            #elif data_idx == 2:
-            #  sim_score.append(-1)
-            #elif data_idx == 3:
-            #  sim_score.append(1.0)
-            #else:
-            #  sim_score.append(0.0)
-
-            #sim_score.append(float(line.strip()))
+      x_train, y_train, x_char_kv, x_len, x_rank = self._build_parallel(self.train_src_file_list[data_idx], self.train_trg_file_list[data_idx], data_idx, outprint=True, not_sample=True)
       for i, y in enumerate(y_train):
         y = tuple(y)
         if not y in trg2srcs:
-          trg2srcs[y] = [[[] for _ in range(self.hparams.lan_size)], [[] for _ in range(self.hparams.lan_size)], [0 for _ in range(self.hparams.lan_size)], [-float("inf") for _ in range(self.hparams.lan_size)]]
+          trg2srcs[y] = [[[] for _ in range(self.hparams.lan_size)], [[] for _ in range(self.hparams.lan_size)], [0 for _ in range(self.hparams.lan_size)]]
         if x_train:
           trg2srcs[y][0][data_idx] = x_train[i]
         else:
           trg2srcs[y][1][data_idx] = x_char_kv[i]
         trg2srcs[y][2][data_idx] = x_len[i]
-        trg2srcs[y][3][data_idx] = sim_score[i]
-    print("total number of different engs: {}".format(len(trg2srcs)))
-    return trg2srcs
+    shared_trgs = []
+    for k, v in trg2srcs.items():
+      skip = False
+      for i in range(self.hparams.lan_size):
+        if v[2][i] == 0:
+          skip = True
+          break
+      if not skip: shared_trgs.append(k)
+    print("total number of shared engs: {}".format(len(shared_trgs)))
+    return trg2srcs, shared_trgs
 
   def next_train_select(self):
     step = 0
     while True:
       # set batcher indices once
-      if not self.start_indices:
+      if not self.start_indices_shared:
         print("batching data...")
         start_indices, end_indices = [], []
         trgs = np.array(list(self.trg2srcs.keys()))
-        lens = [len(t) for t in trgs]
+        lens = [len(t) for t in self.shared_trgs]
         trg_idx = np.argsort(lens)
-        trgs = trgs[trg_idx].tolist()
+        self.shared_trgs = np.array(self.shared_trgs)[trg_idx].tolist()
         if self.hparams.batcher == "word":
           start_index, end_index, count = 0, 0, 0
-          for trg in trgs:
+          for trg in self.shared_trgs:
             src_item = self.trg2srcs[trg]
             count += (max(src_item[2]) + len(trg))
             end_index += 1
@@ -174,62 +152,35 @@ class MultDataUtil(object):
         else:
           print("unknown batcher")
           exit(1)
-        self.start_indices = start_indices
-        self.end_indices = end_indices
+        self.start_indices_shared = start_indices
+        self.end_indices_shared = end_indices
         print("finished batching data...")
-      for step_b, batch_idx in enumerate(np.random.permutation(len(self.start_indices))):
-        if step > self.hparams.sample_select_tau_step:
-          tau = self.hparams.sample_select_tau_min
-        else:
-          if self.hparams.sample_select_tau_max > self.hparams.sample_select_tau_min:
-            tau = self.hparams.sample_select_tau_max - (self.hparams.sample_select_tau_max-self.hparams.sample_select_tau_min) * step / self.hparams.sample_select_tau_step
-          else:
-            tau = self.hparams.sample_select_tau_max + (self.hparams.sample_select_tau_min-self.hparams.sample_select_tau_max) * step / self.hparams.sample_select_tau_step
-        if step > self.hparams.sample_swap_p_step:
-          p = self.hparams.sample_swap_p_min
-        else:
-          p = self.hparams.sample_swap_p_max - (self.hparams.sample_swap_p_max-self.hparams.sample_swap_p_min) * step / self.hparams.sample_swap_p_step
+      for step_b, batch_idx in enumerate(np.random.permutation(len(self.start_indices_shared))):
+      #for step_b, batch_idx in enumerate([i for i in range(len(self.start_indices_shared))]):
         step += 1
-        start_index, end_index = self.start_indices[batch_idx], self.end_indices[batch_idx]
-        x, y, x_char, train_file_index = [], [], [], []
-        for i in range(start_index, end_index):
-          trg = trgs[i]
-          src_item = self.trg2srcs[trg]
-          y.append(list(trg))
-          src_sims = np.exp(np.array(src_item[3]) * tau)
-          src_idx = np.random.choice([i for i in range(self.hparams.lan_size)], 1, p=src_sims/sum(src_sims))[0]
-          if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
-            if self.hparams.sample_swap and src_idx > 1 and src_item[1][1] and p > 0:
-              seq1, seq2 = np.array(src_item[1][1]), np.array(src_item[1][src_idx])
-              l = min(len(seq1), len(seq2))
-              mask = np.random.binomial(1, p, size=l)
-              idx = np.where(mask==1)[0]
-              seq2[idx] = seq1[idx]
-              x_char.append(seq2)
-            else:
+        start_index, end_index = self.start_indices_shared[batch_idx], self.end_indices_shared[batch_idx]
+        for src_idx in range(self.hparams.lan_size):
+          x, y, x_char, train_file_index = [], [], [], []
+          for i in range(start_index, end_index):
+            trg = self.shared_trgs[i]
+            src_item = self.trg2srcs[trg]
+            y.append(list(trg))
+            if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
               x_char.append(src_item[1][src_idx])
-          else:
-            if self.hparams.sample_swap and src_idx > 1 and src_item[0][1] and p > 0:
-              seq1, seq2 = np.array(src_item[0][1]), np.array(src_item[0][src_idx])
-              l = min(len(seq1), len(seq2))
-              mask = np.random.binomial(1, p, size=l)
-              idx = np.where(mask==1)[0]
-              seq2[idx] = seq1[idx]
-              x.append(seq2.tolist())
             else:
               x.append(src_item[0][src_idx])
-          train_file_index.append(src_idx)
-        if self.shuffle:
-          x, y, x_char, train_file_index = self.sort_by_xlen([x, y, x_char, train_file_index])
-        # pad
-        x, x_mask, x_count, x_len, x_pos_emb_idxs, x_char = self._pad(x, self.hparams.pad_id, x_char, self.hparams.src_char_vsize)
-        y, y_mask, y_count, y_len, y_pos_emb_idxs, y_char = self._pad(y, self.hparams.pad_id)
-        batch_size = end_index - start_index
-        if step_b == len(self.start_indices)-1:
-          eop = True
-        else:
-          eop = False
-        yield x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, None, eop, eop, train_file_index, []
+            train_file_index.append(src_idx)
+          if self.shuffle:
+            x, y, x_char, train_file_index = self.sort_by_xlen([x, y, x_char, train_file_index])
+          # pad
+          x, x_mask, x_count, x_len, x_pos_emb_idxs, x_char, x_rank = self._pad(x, self.hparams.pad_id, x_char, self.hparams.src_char_vsize)
+          y, y_mask, y_count, y_len, y_pos_emb_idxs, y_char, y_rank = self._pad(y, self.hparams.pad_id)
+          batch_size = end_index - start_index
+          if step_b == len(self.start_indices_shared)-1:
+            eop = True
+          else:
+            eop = False
+          yield x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, None, eop, eop, train_file_index, []
 
   def get_char_emb(self, word_idx, is_trg=True):
     if is_trg:
@@ -255,10 +206,11 @@ class MultDataUtil(object):
     return ret
 
   def next_train(self):
-      if self.hparams.sample_select:
-        return self.next_train_select()
-      else:
-        return self.next_train_normal()
+      #if self.hparams.sample_select:
+      #  return self.next_train_select()
+      #else:
+      #  return self.next_train_normal()
+      return self.next_train_normal()
 
   def next_train_normal(self):
     while True:
@@ -267,6 +219,8 @@ class MultDataUtil(object):
         self.train_data_queue = np.random.permutation(len(self.train_src_file_list))
       else:
         self.train_data_queue = [i for i in range(len(self.train_src_file_list))]
+      if hasattr(self, "topk_data_queue"):
+        self.train_data_queue = self.topk_data_queue
       for data_idx in self.train_data_queue:
         x_train, y_train, x_char_kv, x_len, x_rank = self._build_parallel(self.train_src_file_list[data_idx], self.train_trg_file_list[data_idx], data_idx, outprint=(self.hparams.sample_load or len(self.start_indices[data_idx]) == 0))
         #x_train, y_train, x_char_kv, x_len, x_rank = self._build_parallel(self.train_src_file_list[data_idx], self.train_trg_file_list[data_idx], outprint=True)
@@ -333,13 +287,7 @@ class MultDataUtil(object):
         cached = []
         for step_b, batch_idx in enumerate(np.random.permutation(len(self.start_indices[data_idx]))):
           step += 1
-          #if self.hparams.new_lan_warm:
-          #  cached.append(batch_idx)
-          #if cached and not self.hparams.new_lan_warm:
-          #  while cached:
-          #    idx = cached[-1]
-          #    cached.pop()
-          #    yield self.yield_data(data_idx, batch_idx, x_train, x_char_kv, y_train, step_b, x_rank)
+
           yield self.yield_data(data_idx, batch_idx, x_train, x_char_kv, y_train, step_b, x_rank)
  
   def yield_data(self, data_idx, batch_idx, x_train, x_char_kv, y_train, step, x_train_rank):
@@ -557,17 +505,59 @@ class MultDataUtil(object):
         count[ngram] += 1
     return count
 
+  def update_prob_list(self, data_weights):
+    trg2srcs = {}
+    t = 1
+    lan_lists = self.lans[1:] 
+    sim_rank = data_weights[1:]
+    if len(lan_lists) > 5:
+      sorted_idx = np.argsort(sim_rank)[::-1]
+      lan_lists = np.array(lan_lists)[sorted_idx].tolist()[:5]
+      sim_rank = np.array(sim_rank)[sorted_idx].tolist()[:5]
+      self.topk_train_queue = [0] + (sorted_idx + 1).tolist()
+      print("training using the top k language {}".format(self.topk_train_queue))
+    print(lan_lists)
+    print(sim_rank)
+    
+    assert len(lan_lists) == len(sim_rank)
+    #sim_rank = [63.31, 42.56, 40.76, 39.41, 36.73]
 
-  def _build_parallel(self, src_file_name, trg_file_name, data_idx, is_train=True, shuffle=True, outprint=False):
+    sim_rank = [i/t for i in sim_rank]
+    out_probs = []
+    for i, lan in enumerate(lan_lists):
+      trg_file = "data/{}_eng/ted-train.mtok.spm8000.eng".format(lan)
+      trg_sents = open(trg_file, 'r').readlines()
+      out_probs.append([0 for _ in range(len(trg_sents))])
+      line = 0
+      for trg in trg_sents:
+        if trg not in trg2srcs: trg2srcs[trg] = []
+        trg2srcs[trg].append([i, line, sim_rank[i]])
+        line += 1
+    print("eng size: {}".format(len(trg2srcs)))
+    for trg, src_list in trg2srcs.items():
+      sum_score = 0
+      for s in src_list:
+        s[2] = np.exp(s[2])
+        sum_score += s[2]
+      for s in src_list:
+        s[2] = s[2] / sum_score
+        out_probs[s[0]][s[1]] = s[2]
+    base_lines = len(open( "data/{}_eng/ted-train.mtok.spm8000.eng".format(self.lans[0])).readlines())
+    self.sample_probs = [[1 for _ in range(base_lines)]] + out_probs
+
+  def _build_parallel(self, src_file_name, trg_file_name, data_idx, is_train=True, shuffle=True, outprint=False, not_sample=False):
     if outprint:
       print("loading parallel sentences from {} {}".format(src_file_name, trg_file_name))
     with open(src_file_name, 'r', encoding='utf-8') as f:
       src_lines = f.read().split('\n')
     with open(trg_file_name, 'r', encoding='utf-8') as f:
       trg_lines = f.read().split('\n')
-    if is_train and not self.hparams.decode and self.hparams.sample_load:
-      f = self.sample_prob_list[data_idx]
-      probs = [float(i) for i in open(f, 'r').readlines()]
+    if is_train and not self.hparams.decode and self.hparams.sample_load and not not_sample:
+      if hasattr(self, "sample_probs"):
+        probs = self.sample_probs[data_idx]
+      else:
+        f = self.sample_prob_list[data_idx]
+        probs = [float(i) for i in open(f, 'r').readlines()]
 
     src_char_kv_data = []
     src_data = []
@@ -592,7 +582,7 @@ class MultDataUtil(object):
       if is_train and not self.hparams.decode and self.hparams.max_len and len(src_tokens) > self.hparams.max_len and len(trg_tokens) > self.hparams.max_len:
         skip_line_count += 1
         continue
-      if is_train and not self.hparams.decode and self.hparams.sample_load:
+      if is_train and not self.hparams.decode and self.hparams.sample_load and not not_sample:
         if not np.random.binomial(1, probs[line_n]):
           skip_line_count += 1
           continue
