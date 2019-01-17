@@ -626,7 +626,14 @@ class MultDataUtil(object):
         s[2] = s[2] / sum_score
         out_probs[s[0]][s[1]] = s[2]
     base_lines = len(open( "data/{}_eng/ted-train.mtok.spm8000.eng".format(self.lans[0])).readlines())
-    self.sample_probs = [[1 for _ in range(base_lines)]] + out_probs
+    if len(lan_lists) > 5:
+      self.sample_probs = [[1 for _ in range(base_lines)]] + out_probs
+      out_probs_all = [[] for _ in range(1 + len(lan_lists))]
+      out_probs_all[0] = [1 for _ in range(base_lines)]
+      for i, idx in enumerate(sorted_idx):
+        out_probs_all[idx+1] = out_probs[i]
+    else:
+      self.sample_probs = [[1 for _ in range(base_lines)]] + out_probs
 
   def _build_parallel(self, src_file_name, trg_file_name, data_idx, is_train=True, shuffle=True, outprint=False, not_sample=False):
     if outprint:

@@ -177,7 +177,8 @@ def get_grad_cos(model, data, crit):
           cosine = (p0_unit * p1_unit).sum()
 
           #if "enc" in k or "decoder.attention" in k:
-          dist = dist + cosine.item()
+          if "enc" in k:
+            dist = dist + cosine.item()
           if data_count == 1:
             print("{} : {}".format(k, cosine))
         dists[j] += dist
