@@ -252,6 +252,7 @@ class MultDataUtil(object):
                 x0.append(src_item[0][0])
               train_file_index_1.append(src_idx)
               train_file_index_0.append(0)
+          if len(train_file_index_0) == 0: continue
           for x, x_char, train_file_index in zip([x0, x1], [x0_char, x1_char], [train_file_index_0, train_file_index_1]):
             if self.shuffle:
               x, y, x_char, train_file_index = self.sort_by_xlen([x, y, x_char, train_file_index])
@@ -300,14 +301,11 @@ class MultDataUtil(object):
       step = 0
       if self.hparams.lang_shuffle:
         self.train_data_queue = np.random.permutation(len(self.train_src_file_list))
-        num_lans = len(self.train_data_queue)
       else:
         self.train_data_queue = [i for i in range(len(self.train_src_file_list))]
-        num_lans = self.hparams.topk + 1
       if hasattr(self, "topk_train_queue"):
         self.train_data_queue = self.topk_train_queue
-      for num in range(num_lans):
-        data_idx = self.train_data_queue[num]
+      for data_idx in self.train_data_queue:
         x_train, y_train, x_char_kv, x_len, x_rank = self._build_parallel(self.train_src_file_list[data_idx], self.train_trg_file_list[data_idx], data_idx, outprint=(self.hparams.sample_load or len(self.start_indices[data_idx]) == 0))
         #x_train, y_train, x_char_kv, x_len, x_rank = self._build_parallel(self.train_src_file_list[data_idx], self.train_trg_file_list[data_idx], outprint=True)
         # set batcher indices once
@@ -408,7 +406,7 @@ class MultDataUtil(object):
       eof = True
     else:
       eof = False
-    if data_idx == self.train_data_queue[-1] and step == len(self.start_indices[data_idx])-1:
+    if data_idx != 0 and data_idx == self.train_data_queue[-1] and step == len(self.start_indices[data_idx])-1:
       eop = True
     else:
       eop = False
@@ -602,7 +600,6 @@ class MultDataUtil(object):
       sim_rank = np.array(sim_rank)[sorted_idx].tolist()[:self.hparams.topk]
       
       self.topk_train_queue = ((sorted_idx + 1).tolist())[:self.hparams.topk]
-      self.topk_train_queue = [0] + self.topk_train_queue
       print("training using the top k language {}".format(self.topk_train_queue))
     print(lan_lists)
     print(sim_rank)
@@ -632,15 +629,21 @@ class MultDataUtil(object):
         out_probs[s[0]][s[1]] = s[2]
     base_lines = len(open( "data/{}_eng/ted-train.mtok.spm8000.eng".format(self.lans[0])).readlines())
     if len(self.lans[1:]) > self.hparams.topk:
-      self.sample_probs = [[1 for _ in range(base_lines)]] + out_probs
-      out_probs_all = [[] for _ in range(1 + len(lan_lists))]
-      out_probs_all[0] = [1 for _ in range(base_lines)]
-      for i, idx in enumerate(sorted_idx):
+      self.sample_probs = out_probs
+      out_probs_all = [[] for _ in range(len(self.lans))]
+      for i, idx in enumerate(sorted_idx[:self.hparams.topk]):
         out_probs_all[idx+1] = out_probs[i]
       self.sample_probs = out_probs_all
-      print("using topK train queue {}...".format(str(self.topk_train_queue)))
     else:
-      self.sample_probs = [[1 for _ in range(base_lines)]] + out_probs
+      self.sample_probs = out_probs
+      self.topk_train_queue = lan_lists
+    print("using topK train queue {}...".format(str(self.topk_train_queue)))
+
+  def update_base_prob_list(self):
+    base_lines = len(open( "data/{}_eng/ted-train.mtok.spm8000.eng".format(self.lans[0])).readlines())
+    self.sample_probs = [[1 for _ in range(base_lines)]] 
+    self.topk_train_queue = [0]
+    
 
   def _build_parallel(self, src_file_name, trg_file_name, data_idx, is_train=True, shuffle=True, outprint=False, not_sample=False):
     if outprint:
