@@ -516,7 +516,7 @@ def train():
   tr_loss, update_batch_size = None, 0
   hparams.new_lan_warm = False
   s0_trainable_params = []
-  get_grad_cos(model, data, crit)
+  get_grad_cos_all(model, data, crit)
   for (x_train, x_mask, x_count, x_len, x_pos_emb_idxs, y_train, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_train_char_sparse, y_train_char_sparse, eop, eof, file_idx, x_rank) in data.next_train():
     step += 1
     target_words += (y_count - batch_size)
@@ -628,7 +628,7 @@ def train():
       gc.collect()
     if eop: epoch += 1
     if eof and file_idx[0] == 0:
-      get_grad_cos(model, data, crit)
+      get_grad_cos_all(model, data, crit)
     if (step / args.update_batch) % args.log_every == 0:
       curr_time = time.time()
       since_start = (curr_time - start_time) / 60.0

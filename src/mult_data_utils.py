@@ -174,12 +174,13 @@ class MultDataUtil(object):
           for i in range(start_index, end_index):
             trg = self.shared_trgs[i]
             src_item = self.trg2srcs[trg]
-            y.append(list(trg))
-            if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
-              x_char.append(src_item[1][src_idx])
-            else:
-              x.append(src_item[0][src_idx])
-            train_file_index.append(src_idx)
+            if len(src_item[1][src_idx]) > 0 or len(src_item[0][src_idx]) > 0:
+              y.append(list(trg))
+              if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
+                x_char.append(src_item[1][src_idx])
+              else:
+                x.append(src_item[0][src_idx])
+              train_file_index.append(src_idx)
           if self.shuffle:
             x, y, x_char, train_file_index = self.sort_by_xlen([x, y, x_char, train_file_index])
           # pad
@@ -191,6 +192,78 @@ class MultDataUtil(object):
           else:
             eop = False
           yield x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, None, eop, eop, train_file_index, []
+
+  def next_train_select_all(self):
+    step = 0
+    while True:
+      # set batcher indices once
+      if not self.start_indices_shared:
+        print("batching data...")
+        start_indices, end_indices = [], []
+        trgs = np.array(list(self.trg2srcs.keys()))
+        lens = [len(t) for t in self.shared_trgs]
+        trg_idx = np.argsort(lens)
+        self.shared_trgs = np.array(trgs)[trg_idx].tolist()
+        if self.hparams.batcher == "word":
+          start_index, end_index, count = 0, 0, 0
+          for trg in self.shared_trgs:
+            src_item = self.trg2srcs[trg]
+            count += (max(src_item[2]) + len(trg))
+            end_index += 1
+            if count > self.hparams.batch_size: 
+              start_indices.append(start_index)
+              end_indices.append(end_index)
+              count = 0
+              start_index = end_index
+          if start_index < end_index:
+            start_indices.append(start_index)
+            end_indices.append(end_index)
+        elif self.hparams.batcher == "sent":
+          start_index, end_index, count = 0, 0, 0
+          while end_index < len(self.trg2srcs):
+            end_index = min(start_index + self.hparams.batch_size, len(self.trg2srcs))
+            start_indices.append(start_index)
+            end_indices.append(end_index)
+            start_index = end_index
+        else:
+          print("unknown batcher")
+          exit(1)
+        self.start_indices_shared = start_indices
+        self.end_indices_shared = end_indices
+        print("finished batching data...")
+      self.ave_grad = 5
+      for src_idx in range(1, self.hparams.lan_size):
+        for step_b, batch_idx in enumerate(np.random.permutation(len(self.start_indices_shared))):
+        #for step_b, batch_idx in enumerate([i for i in range(len(self.start_indices_shared))]):
+          step += 1
+          if step_b == self.ave_grad: break
+          start_index, end_index = self.start_indices_shared[batch_idx], self.end_indices_shared[batch_idx]
+          x1, y, x1_char, train_file_index_1, train_file_index_0, x0, x0_char = [], [], [], [], [], [], []
+          for i in range(start_index, end_index):
+            trg = self.shared_trgs[i]
+            src_item = self.trg2srcs[trg]
+            if len(src_item[1][src_idx]) > 0 or len(src_item[0][src_idx]) > 0:
+              y.append(list(trg))
+              if self.hparams.char_ngram_n > 0 or self.hparams.bpe_ngram:
+                x1_char.append(src_item[1][src_idx])
+                x0_char.append(src_item[1][0])
+              else:
+                x1.append(src_item[0][src_idx])
+                x0.append(src_item[0][0])
+              train_file_index_1.append(src_idx)
+              train_file_index_0.append(0)
+          for x, x_char, train_file_index in zip([x0, x1], [x0_char, x1_char], [train_file_index_0, train_file_index_1]):
+            if self.shuffle:
+              x, y, x_char, train_file_index = self.sort_by_xlen([x, y, x_char, train_file_index])
+            # pad
+            x, x_mask, x_count, x_len, x_pos_emb_idxs, x_char, x_rank = self._pad(x, self.hparams.pad_id, x_char, self.hparams.src_char_vsize)
+            y, y_mask, y_count, y_len, y_pos_emb_idxs, y_char, y_rank = self._pad(y, self.hparams.pad_id)
+            batch_size = end_index - start_index
+            if step_b == len(self.start_indices_shared)-1:
+              eop = True
+            else:
+              eop = False
+            yield x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, None, eop, eop, train_file_index, []
 
   def get_char_emb(self, word_idx, is_trg=True):
     if is_trg:
