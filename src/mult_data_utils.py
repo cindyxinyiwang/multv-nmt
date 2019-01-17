@@ -300,11 +300,14 @@ class MultDataUtil(object):
       step = 0
       if self.hparams.lang_shuffle:
         self.train_data_queue = np.random.permutation(len(self.train_src_file_list))
+        num_lans = len(self.train_data_queue)
       else:
         self.train_data_queue = [i for i in range(len(self.train_src_file_list))]
-      if hasattr(self, "topk_data_queue"):
-        self.train_data_queue = self.topk_data_queue
-      for data_idx in self.train_data_queue:
+        num_lans = self.hparams.topk + 1
+      if hasattr(self, "topk_train_queue"):
+        self.train_data_queue = self.topk_train_queue
+      for num in range(num_lans):
+        data_idx = self.train_data_queue[num]
         x_train, y_train, x_char_kv, x_len, x_rank = self._build_parallel(self.train_src_file_list[data_idx], self.train_trg_file_list[data_idx], data_idx, outprint=(self.hparams.sample_load or len(self.start_indices[data_idx]) == 0))
         #x_train, y_train, x_char_kv, x_len, x_rank = self._build_parallel(self.train_src_file_list[data_idx], self.train_trg_file_list[data_idx], outprint=True)
         # set batcher indices once
@@ -593,11 +596,13 @@ class MultDataUtil(object):
     t = 1
     lan_lists = self.lans[1:] 
     sim_rank = data_weights[1:]
-    if len(lan_lists) > 5:
+    if len(self.lans[1:]) > self.hparams.topk:
       sorted_idx = np.argsort(sim_rank)[::-1]
-      lan_lists = np.array(lan_lists)[sorted_idx].tolist()[:5]
-      sim_rank = np.array(sim_rank)[sorted_idx].tolist()[:5]
-      self.topk_train_queue = [0] + (sorted_idx + 1).tolist()
+      lan_lists = np.array(lan_lists)[sorted_idx].tolist()[:self.hparams.topk]
+      sim_rank = np.array(sim_rank)[sorted_idx].tolist()[:self.hparams.topk]
+      
+      self.topk_train_queue = ((sorted_idx + 1).tolist())[:self.hparams.topk]
+      self.topk_train_queue = [0] + self.topk_train_queue
       print("training using the top k language {}".format(self.topk_train_queue))
     print(lan_lists)
     print(sim_rank)
@@ -626,12 +631,14 @@ class MultDataUtil(object):
         s[2] = s[2] / sum_score
         out_probs[s[0]][s[1]] = s[2]
     base_lines = len(open( "data/{}_eng/ted-train.mtok.spm8000.eng".format(self.lans[0])).readlines())
-    if len(lan_lists) > 5:
+    if len(self.lans[1:]) > self.hparams.topk:
       self.sample_probs = [[1 for _ in range(base_lines)]] + out_probs
       out_probs_all = [[] for _ in range(1 + len(lan_lists))]
       out_probs_all[0] = [1 for _ in range(base_lines)]
       for i, idx in enumerate(sorted_idx):
         out_probs_all[idx+1] = out_probs[i]
+      self.sample_probs = out_probs_all
+      print("using topK train queue {}...".format(str(self.topk_train_queue)))
     else:
       self.sample_probs = [[1 for _ in range(base_lines)]] + out_probs
 

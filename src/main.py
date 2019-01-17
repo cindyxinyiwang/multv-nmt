@@ -188,6 +188,7 @@ parser.add_argument("--sample_load", action="store_true", help="max layer to sep
 parser.add_argument("--sample_prob_list", type=str, default="", help="selected data extension")
 
 parser.add_argument("--compute_ngram", action="store_true", help="max layer to sep loc")
+parser.add_argument("--topk", type=int, default=10, help="top k languages to train")
 args = parser.parse_args()
 
 if args.bpe_ngram: args.n = None
@@ -407,6 +408,7 @@ def train():
       sample_prob_list=args.sample_prob_list,
       compute_ngram=args.compute_ngram,
       update_batch=args.update_batch,
+      topk=args.topk,
     )
   # build or load model
   print("-" * 80)
