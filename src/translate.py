@@ -84,6 +84,10 @@ hparams.merge_bpe=args.merge_bpe
 hparams.out_file_list=out_file_list
 hparams.nbest=args.nbest
 hparams.decode=True
+if not hasattr(train_hparams, "semb_num"):
+  model.hparams.semb_num = 1
+if not hasattr(train_hparams, "compute_ngram"):
+  model.hparams.compute_ngram = False
 
 if hasattr(train_hparams, 'char_temp'):
   model.hparams.char_temp = train_hparams.char_temp
@@ -101,6 +105,8 @@ if not hasattr(train_hparams, 'bpe_ngram'):
   hparams.bpe_ngram = False 
 if not hasattr(train_hparams, 'uni'):
   hparams.uni = False 
+if not hasattr(train_hparams, 'copy_mono'):
+  hparams.copy_mono = False 
 
 model.hparams.cuda = hparams.cuda
 data = MultDataUtil(hparams=hparams)
@@ -126,7 +132,7 @@ num_sentences = 0
 with torch.no_grad():
   out_file = open(hparams.out_file_list[0], 'w', encoding='utf-8')
   test_idx = 0
-  for x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, y_char, eop, eof, test_file_idx in data.next_test(test_batch_size=1):
+  for x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, y_char, eop, eof, test_file_idx, x_rankn in data.next_test(test_batch_size=1):
     gc.collect()
     if hparams.model_type == 'seq2seq':
       hs = model.translate(
