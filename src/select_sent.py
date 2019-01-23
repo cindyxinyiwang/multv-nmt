@@ -1,6 +1,6 @@
 import numpy as np
 
-def get_lan_order(base_lan, lan_dist_file="ted-train-vocab.mtok.sim-ngram.graph"):
+def get_lan_order(base_lan, lan_dist_file="mtok-ted-train-vocab.mtok.sim-ngram.graph"):
   dists = {}
   with open(lan_dist_file, "r") as myfile:
     for line in myfile:
@@ -11,17 +11,17 @@ def get_lan_order(base_lan, lan_dist_file="ted-train-vocab.mtok.sim-ngram.graph"
   ordered_lans = sorted(dists.items(), key=lambda kv:kv[1])
   print(ordered_lans)
   #exit(0)
-  return ordered_lans
+  return ordered_lans, dists
 
 if __name__ == "__main__":
-  IL = "bel"
-  RL = "rus"
+  IL = "glg"
+  RL = "por"
   
-  tar_vocab = "data/{}_eng/ted-train.mtok.{}.ochar4vocab".format(IL, IL)
-  tar_eng = "data/{}_eng/ted-train.mtok.spm8000.eng".format(RL)
-  
-  langs = get_lan_order(IL)
-  langs = [kv[0] for kv in langs[:-2]][::-1]
+  langs, _ = get_lan_order(IL)
+  langs = [kv[0] for kv in langs[:-1]][::-1]
+
+  tar_vocab = "data_moses/{}_eng/ted-train.mtok.{}.ochar4vocab".format(IL, IL)
+  tar_eng = "data_moses/{}_eng/ted-train.mtok.spm8000.eng".format(IL)
   #aze
   #langs = ["por", "ces", "rus"]
   #langs = ["ind", "dan", "epo", "est", "eus", "swe"]
@@ -41,10 +41,10 @@ if __name__ == "__main__":
   data_outtrgs = []
   
   for lan in langs:
-    data_inputs.append("data/{}_eng/ted-train.mtok.{}".format(lan, lan))
-    data_trgs.append("data/{}_eng/ted-train.mtok.spm8000.eng".format(lan))
-    data_outputs.append("data/{}_eng/ted-train.mtok.{}.{}seleng".format(lan, lan, IL))
-    data_outtrgs.append("data/{}_eng/ted-train.mtok.spm8000.eng.{}seleng".format(lan, IL))
+    data_inputs.append("data_moses/{}_eng/ted-train.mtok.spm8000.{}".format(lan, lan))
+    data_trgs.append("data_moses/{}_eng/ted-train.mtok.spm8000.eng".format(lan))
+    data_outputs.append("data_moses/{}_eng/ted-train.mtok.spm8000.{}.{}seleng".format(lan, lan, IL))
+    data_outtrgs.append("data_moses/{}_eng/ted-train.mtok.spm8000.eng.{}seleng".format(lan, IL))
   
   #for inp, out, trg, outtrg, count in zip(data_inputs, data_outputs, data_trgs, data_outtrgs, langs_count):
   #  inp = np.array(open(inp, 'r').readlines())

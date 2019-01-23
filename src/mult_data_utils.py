@@ -54,7 +54,7 @@ class MultDataUtil(object):
             self.sample_prob_list.append(self.hparams.sample_prob_list.replace("LAN", lan))
 
         if self.hparams.select_data:
-          for i in range(2,len(self.train_src_file_list)):
+          for i in range(1,len(self.train_src_file_list)):
             self.train_src_file_list[i] = self.train_src_file_list[i] + "." + self.hparams.sel
             self.train_trg_file_list[i] = self.train_trg_file_list[i] + "." + self.hparams.sel
             print(self.train_src_file_list)
@@ -92,6 +92,50 @@ class MultDataUtil(object):
       self.end_indices_shared = []     
       # {trg: [(src1, src_char1, src_len1, sim1), (src2, src_char1, src_len1, sim2), ..., srcn]}
       self.trg2srcs, self.shared_trgs = self.get_trg2srcs()
+
+    if hasattr(self.hparams, 'uni') and self.hparams.uni:
+      self.pretrained_src_emb_list = []
+      self.pretrained_trg_emb = None
+      #src_w2i = {}
+      #src_i2w = []
+      for i, emb_file in enumerate(self.hparams.pretrained_src_emb_list):
+        print("load emb from {}".format(emb_file))
+        emb, i2w, w2i = self.load_pretrained(emb_file)
+        self.pretrained_src_emb_list.append(emb)
+        #for w in i2w:
+        #  if w not in src_w2i:
+        #    src_w2i[w] = len(src_w2i)
+        #    src_i2w.append(w)
+        self.src_w2i_list.append(w2i)
+        self.src_i2w_list.append(i2w)
+      #self.src_i2w = src_i2w
+      #self.src_w2i = src_w2i
+      
+      self.pretrained_trg_emb, _, _ = self.load_pretrained(self.hparams.pretrained_trg_emb)
+ 
+  def load_pretrained(self, pretrained_emb_file):
+    f = open(pretrained_emb_file, 'r', encoding='utf-8')
+    header = f.readline().split(' ')
+    count = int(header[0])
+    dim = int(header[1])
+    #matrix = np.zeros((len(w2i), dim), dtype=np.float32)
+    matrix = np.zeros((count, dim), dtype=np.float32)
+    #i2w = ['<pad>', '<unk>', '<s>', '<\s>']
+    i2w = []
+    #w2i = {'<pad>': 0, '<unk>':1, '<s>':2, '<\s>':3}
+    w2i = {}
+
+    for i in range(count):
+      word, vec = f.readline().split(' ', 1)
+      w2i[word] = len(w2i)
+      i2w.append(word)
+      matrix[i] = np.fromstring(vec, sep=' ', dtype=np.float32)
+      #if not word in w2i:
+      #  print("{} no in vocab".format(word))
+      #  continue
+      #matrix[w2i[word]] = np.fromstring(vec, sep=' ', dtype=np.float32) 
+    return torch.FloatTensor(matrix), i2w, w2i
+
 
   def get_trg2srcs(self):
     trg2srcs = {}
@@ -231,7 +275,7 @@ class MultDataUtil(object):
         self.start_indices_shared = start_indices
         self.end_indices_shared = end_indices
         print("finished batching data...")
-      self.ave_grad = 5
+      self.ave_grad = 20
       for src_idx in range(1, self.hparams.lan_size):
         for step_b, batch_idx in enumerate(np.random.permutation(len(self.start_indices_shared))):
         #for step_b, batch_idx in enumerate([i for i in range(len(self.start_indices_shared))]):
@@ -697,6 +741,10 @@ class MultDataUtil(object):
         src_indices = [self.hparams.bos_id] 
       if self.hparams.semb_num > 1:
         src_ranks = [0]
+      if self.hparams.uni:
+        src_w2i = self.src_w2i_list[data_idx]
+      elif self.hparams.char_ngram_n <= 0 and not self.bpe_ngram:
+        src_w2i = self.src_w2i
       for src_tok in src_tokens:
         # calculate char ngram emb for src_tok
         add_indice = False 
@@ -709,11 +757,11 @@ class MultDataUtil(object):
         else:
           add_indice = True 
         if ( not add_indice and self.hparams.uni) or add_indice:
-          if src_tok not in self.src_w2i:
+          if src_tok not in src_w2i:
             src_indices.append(self.hparams.unk_id)
             src_unk_count += 1
           else:
-            src_indices.append(self.src_w2i[src_tok])
+            src_indices.append(src_w2i[src_tok])
         if self.hparams.semb_num > 1:
           if src_tok in cur_src_w2i:
             cur_idx = cur_src_w2i[src_tok]
