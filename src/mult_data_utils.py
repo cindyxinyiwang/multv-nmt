@@ -743,7 +743,7 @@ class MultDataUtil(object):
         src_ranks = [0]
       if self.hparams.uni:
         src_w2i = self.src_w2i_list[data_idx]
-      elif self.hparams.char_ngram_n <= 0 and not self.bpe_ngram:
+      elif self.hparams.char_ngram_n <= 0 and not self.hparams.bpe_ngram:
         src_w2i = self.src_w2i
       for src_tok in src_tokens:
         # calculate char ngram emb for src_tok

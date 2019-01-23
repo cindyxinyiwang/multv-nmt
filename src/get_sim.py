@@ -68,11 +68,12 @@ def prob_by_rank():
     out = open("data_moses/{}_eng/ted-train.mtok.{}.prob-rank-{}-t{}-k{}".format(lan, lan, base_lan, t, k), "w")
     for p in out_probs[i]:
       out.write("{}\n".format(p))
+    out.close()
   out = open("data_moses/{}_eng/ted-train.mtok.{}.prob-rank-{}-t{}-k{}".format(base_lan, base_lan, base_lan, t, k), "w")
   base_lines = len(open( "data_moses/{}_eng/ted-train.mtok.spm8000.eng".format(base_lan)).readlines())
   for i in range(base_lines):
     out.write("{}\n".format(1))
-
+  out.close()
 
 def prob_by_classify():
   trg2srcs = {}
