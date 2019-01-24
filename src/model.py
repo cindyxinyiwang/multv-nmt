@@ -331,8 +331,8 @@ class shareEmb(nn.Module):
     self.hparams = hparams
     self.emb_list = []
     self.pretrained_emb_list = []
-    for i in range(len(self.hparams.train_src_file_list)):
-      self.emb_list.append(nn.Embedding(501, self.hparams.d_word_vec))
+    for i in range(self.hparams.lan_size):
+      self.emb_list.append(nn.Embedding(2001, self.hparams.d_word_vec))
       self.pretrained_emb_list.append(nn.Embedding.from_pretrained(data.pretrained_src_emb_list[i], freeze=True))
     self.emb_list = nn.ModuleList(self.emb_list)
     self.pretrained_emb_list = nn.ModuleList(self.pretrained_emb_list)
@@ -341,7 +341,8 @@ class shareEmb(nn.Module):
     self.A = nn.Linear(self.hparams.d_word_vec, self.hparams.d_word_vec, bias=False)
     self.dropout = nn.Dropout(hparams.dropout)
     self.softmax = nn.Softmax(dim=-1)
-    self.temp = np.power(hparams.d_model, 0.5)
+    #self.temp = np.power(hparams.d_model, 0.5)
+    self.temp = 0.05
     if self.hparams.cuda: 
       self.A = self.A.cuda()
       self.emb_list = self.emb_list.cuda()
@@ -361,11 +362,12 @@ class shareEmb(nn.Module):
     attn_weight = self.dropout(attn_weight)
     # [batch_size, max_len, d_emb_dim]
     ctx = torch.bmm(attn_weight, self.latent.unsqueeze(0).expand(batch_size, -1, -1))
-    mask = (train_x < 500).long()
-    train_x = train_x * mask 
+    mask = (train_x < 2000).long()
+    train_x = train_x * mask
     #print(train_x)
     #exit(0)
     emb = self.emb_list[file_idx[0]](train_x)
+    ctx = ctx * (1 - mask.float().unsqueeze(2)) 
     return ctx + emb
     #return ctx 
 
@@ -392,7 +394,7 @@ class uniEncoder(nn.Module):
       self.dropout = self.dropout.cuda()
       self.bridge = self.bridge.cuda()
 
-  def forward(self, x_train_char, x_len, file_idx=None, x_rank=None):
+  def forward(self, x_train, x_len, x_train_char, file_idx=None, x_rank=None):
     """Performs a forward pass.
     Args:
       x_train: Torch Tensor of size [batch_size, max_len]

@@ -189,6 +189,8 @@ parser.add_argument("--sample_prob_list", type=str, default="", help="selected d
 
 parser.add_argument("--compute_ngram", action="store_true", help="max layer to sep loc")
 parser.add_argument("--topk", type=int, default=10, help="top k languages to train")
+parser.add_argument("--el", action="store_true", help="max layer to sep loc")
+parser.add_argument("--detok", action="store_true", help="max layer to sep loc")
 args = parser.parse_args()
 
 if args.bpe_ngram: args.n = None
@@ -241,6 +243,8 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
   if eval_bleu:
     valid_hyp_file_list = [os.path.join(args.output_dir, "dev{}.trans_{}".format(i, step)) for i in hparams.dev_file_idx_list]
     out_file = open(valid_hyp_file_list[0], 'w', encoding='utf-8')
+    if args.detok:
+      valid_hyp_detok_file_list = [os.path.join(args.output_dir, "dev{}.trans_{}.detok".format(i, step)) for i in hparams.dev_file_idx_list]
     dev_idx = 0
     for x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, y_char, eop, eof, dev_file_index, x_rank in data.next_dev(dev_batch_size=1):
       if args.model_type == 'seq2seq':
@@ -262,9 +266,17 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
         out_file.flush()
       if eof:
         out_file.close()
+        if args.detok:
+          _ = subprocess.getoutput(
+          "python src/reversible_tokenize.py --detok < {0} > {1}".format(valid_hyp_file_list[dev_idx], valid_hyp_detok_file_list[dev_idx]))
+
         ref_file = hparams.dev_ref_file_list[dev_idx]
-        bleu_str = subprocess.getoutput(
-          "./multi-bleu.perl {0} < {1}".format(ref_file, valid_hyp_file_list[dev_idx]))
+        if args.detok:
+          bleu_str = subprocess.getoutput(
+            "./multi-bleu.perl {0} < {1}".format(ref_file, valid_hyp_detok_file_list[dev_idx]))
+        else:
+          bleu_str = subprocess.getoutput(
+            "./multi-bleu.perl {0} < {1}".format(ref_file, valid_hyp_file_list[dev_idx]))
         print("bleu for dev {}".format(dev_idx))
         print("{}".format(bleu_str))
         bleu_str = bleu_str.split('\n')[-1].strip()
@@ -409,6 +421,8 @@ def train():
       compute_ngram=args.compute_ngram,
       update_batch=args.update_batch,
       topk=args.topk,
+      el=args.el,
+      detok=args.detok,
     )
   # build or load model
   print("-" * 80)
@@ -483,6 +497,9 @@ def train():
         for s in model.encoder.char_emb.sep_proj_list:
           d = s.weight.data.size(0)
           s.weight.data.copy_(torch.eye(d) + args.id_scale*torch.diagflat(torch.ones(d).normal_(0,1)))
+      if args.uni:
+        print("initialize A as identity matrix")
+        nn.init.eye(model.encoder.shared_emb.A.weight)
     trainable_params = [
       p for p in model.parameters() if p.requires_grad]
     optim = torch.optim.Adam(trainable_params, lr=hparams.lr, weight_decay=hparams.l2_reg)
@@ -519,7 +536,7 @@ def train():
   hparams.new_lan_warm = False
   s0_trainable_params = []
   #get_grad_cos_all(model, data, crit)
-  data.update_base_prob_list()
+  #data.update_base_prob_list()
   for (x_train, x_mask, x_count, x_len, x_pos_emb_idxs, y_train, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_train_char_sparse, y_train_char_sparse, eop, eof, file_idx, x_rank) in data.next_train():
     step += 1
     target_words += (y_count - batch_size)
@@ -631,9 +648,9 @@ def train():
       gc.collect()
     if eop: 
       epoch += 1
-      data.update_base_prob_list()
-    if eof and file_idx[0] == 0:
-      get_grad_cos_all(model, data, crit)
+      #data.update_base_prob_list()
+    #if eof and file_idx[0] == 0:
+    #  get_grad_cos_all(model, data, crit)
     if (step / args.update_batch) % args.log_every == 0:
       curr_time = time.time()
       since_start = (curr_time - start_time) / 60.0

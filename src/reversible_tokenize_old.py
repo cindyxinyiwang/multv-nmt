@@ -1,31 +1,38 @@
+# Reversible tokenizer from here:
+# https://sjmielke.com/papers/tokenize/
+
 import re
 import sys
 import unicodedata
 
-
-MERGESYMBOL = '↹'
-
+# MERGESYMBOL = '↹'
+MERGESYMBOL = ''
 
 def is_weird(c):
-  return not (unicodedata.category(c)[0] in "LMN" or c.isspace())  # Caution: python's isalnum(c) does not accept Marks (category M*)!
-
+  return not (unicodedata.category(c)[0] in 'LNM' or c.isspace())
+  # return not (c.isalnum() or c.isspace())
 
 def check_for_at(instring):
   for match in re.finditer(' ' + MERGESYMBOL, instring):
     if match.end() < len(instring) and is_weird(instring[match.end()]):
-      print("CAUTION: looks like a merge to the detokenizer:", instring[match.start():match.end() + 1], " at position", match.start(), file = sys.stderr)
+      print("CAUTION: looks like a merge to the detokenizer:", instring[match.start():match.end()+1], " at position", match.start(), file = sys.stderr)
   for match in re.finditer(MERGESYMBOL + ' ', instring):
-    if match.start() > 0 and is_weird(instring[match.start() - 1]):
-      print("CAUTION: looks like a merge to the detokenizer:", instring[match.start() - 1:match.end()], " at position", match.start() - 1, file = sys.stderr)
-
+    if match.start() > 0 and is_weird(instring[match.start()-1]):
+      print("CAUTION: looks like a merge to the detokenizer:", instring[match.start()-1:match.end()], " at position", match.start()-1, file = sys.stderr)
 
 def tokenize(instring):
+  # Fix the Kawakami error?
+  # instring = instring.replace('\\n\\n', '\n\n')
+
+  # remove non-breaking spaces
+  instring = instring.replace(u'\u200d', '')
+
   # Walk through the string!
   outsequence = []
   for i in range(len(instring)):
     c = instring[i]
-    c_p = instring[i - 1] if i > 0 else c
-    c_n = instring[i + 1] if i < len(instring) - 1 else c
+    c_p = instring[i-1] if i > 0 else c
+    c_n = instring[i+1] if i < len(instring) - 1 else c
 
     # Is it a letter (i.e. Unicode category starts with 'L')?
     # Or alternatively, is it just whitespace?
@@ -48,15 +55,16 @@ def tokenize(instring):
 
   return ''.join(outsequence)
 
-
 def detokenize(instring):
   # Walk through the string!
   outsequence = []
   i = 0
   while i < len(instring):
     c = instring[i]
-    c_n = instring[i + 1] if i < len(instring) - 1 else c
-    c_nn = instring[i + 2] if i < len(instring) - 2 else c
+    c_p = instring[i-1] if i > 0 else c
+    c_n = instring[i+1] if i < len(instring) - 1 else c
+    c_pp = instring[i-2] if i > 1 else c
+    c_nn = instring[i+2] if i < len(instring) - 2 else c
 
     # It could be one of the spaces we introduced
     if c + c_n == ' ' + MERGESYMBOL and is_weird(c_nn):
@@ -70,18 +78,7 @@ def detokenize(instring):
 
   return ''.join(outsequence)
 
-
-if sys.argv[1] == '--tok':
-  instring = sys.stdin.read()
-  check_for_at(instring)
+for line in sys.stdin:
+  instring = line.strip()
   tok_string = tokenize(instring)
-  if detokenize(tok_string) != instring:
-    print("Incorrectness somewhere :(", file = sys.stderr)
-  sys.stdout.write(tok_string)
-elif sys.argv[1] == '--detok':
-  instring = sys.stdin.read()
-  sys.stdout.write(detokenize(instring))
-else:
-  print('First parameter has to be --tok or --detok!', file = sys.stderr)
-  exit(1)
-
+  print(tok_string)

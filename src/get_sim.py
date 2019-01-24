@@ -12,7 +12,7 @@ from mult_data_utils import MultDataUtil
 from select_sent import get_lan_order
 
 vocab_size = 8000
-base_lan = "aze"
+base_lan = "slk"
 #lan_lists = ["ukr", "rus", "bul", "mkd", "kaz", "mon"]
 #lan_lists = ["aze", "tur", "rus", "por", "ces"]
 #lan_lists = ["tur", "ind", "msa", "epo", "sqi", "swe", "dan"]
@@ -24,9 +24,20 @@ def prob_by_rank():
   trg2srcs = {}
   t = 1
   k = 58
-  lan_order = get_lan_order(base_lan, lan_dist_file="ted-train-vocab.mtok.sim-spm8000.graph")[-k:-1]
+  # exclude low resource lan
+  #el = True
+  el = False
+  lan_order, _ = get_lan_order(base_lan, lan_dist_file="ted-train-vocab.rtok.sim-ngram.graph")
+  #lan_order = lan_order[-k:-1]
+  if el: 
+    lan_order = lan_order[-k:]
+  else:
+    lan_order = lan_order[-k:-1]
   lan_lists = [kv[0] for kv in lan_order]
+  # ngrams
   sim_rank = [kv[1]/100 for kv in lan_order]
+  # spm8000
+  #sim_rank = [kv[1]/10 for kv in lan_order]
   print(lan_lists)
   print(sim_rank)
   # aze
@@ -41,7 +52,7 @@ def prob_by_rank():
   sim_rank = [i/t for i in sim_rank]
   out_probs = []
   for i, lan in enumerate(lan_lists):
-    trg_file = "data/{}_eng/ted-train.mtok.spm8000.eng".format(lan)
+    trg_file = "data_rtok/{}_eng/ted-train.mtok.spm8000.eng".format(lan)
     trg_sents = open(trg_file, 'r').readlines()
     out_probs.append([0 for _ in range(len(trg_sents))])
     line = 0
@@ -60,14 +71,21 @@ def prob_by_rank():
       out_probs[s[0]][s[1]] = s[2]
 
   for i, lan in enumerate(lan_lists):
-    out = open("data/{}_eng/ted-train.mtok.spm8000.{}.prob-rank-{}-t{}-k{}".format(lan, lan, base_lan, t, k), "w")
+    if el:
+      out = open("data_rtok/{}_eng/ted-train.mtok.{}.prob-rank-{}-t{}-k{}-el".format(lan, lan, base_lan, t, k), "w")
+    else:
+      out = open("data_rtok/{}_eng/ted-train.mtok.{}.prob-rank-{}-t{}-k{}".format(lan, lan, base_lan, t, k), "w")
     for p in out_probs[i]:
       out.write("{}\n".format(p))
-  out = open("data/{}_eng/ted-train.mtok.spm8000.{}.prob-rank-{}-t{}-k{}".format(base_lan, base_lan, base_lan, t, k), "w")
-  base_lines = len(open( "data/{}_eng/ted-train.mtok.spm8000.eng".format(base_lan)).readlines())
+    out.close()
+  if el:
+    out = open("data_rtok/{}_eng/ted-train.mtok.{}.prob-rank-{}-t{}-k{}-el".format(base_lan, base_lan, base_lan, t, k), "w")
+  else:
+    out = open("data_rtok/{}_eng/ted-train.mtok.{}.prob-rank-{}-t{}-k{}".format(base_lan, base_lan, base_lan, t, k), "w")
+  base_lines = len(open( "data_rtok/{}_eng/ted-train.mtok.spm8000.eng".format(base_lan)).readlines())
   for i in range(base_lines):
     out.write("{}\n".format(1))
-
+  out.close()
 
 def prob_by_classify():
   trg2srcs = {}
@@ -224,7 +242,7 @@ def sim_gram_all(lan_list_file):
       print("process ref lan {}".format(lan))
 
 def sim_vocab_all(lan_list_file):
-  out = open("ted-train-vocab.mtok.sim-ngram.graph", "w")
+  out = open("ted-train-vocab.rtok.sim-ngram.graph", "w")
   lan_lists = []
   with open(lan_list_file, 'r') as myfile:
     for line in myfile:
@@ -233,7 +251,7 @@ def sim_vocab_all(lan_list_file):
 
   for base_lan in lan_lists:
   #for base_lan in ["bel"]:
-    base_vocab = "data/{}_eng/ted-train.mtok.{}.char4vocab".format(base_lan, base_lan)
+    base_vocab = "data_rtok/{}_eng/ted-train.mtok.{}.char4vocab".format(base_lan, base_lan)
     if not os.path.isfile(base_vocab):
       print("vocab for {} not exist..".format(base_lan))
       continue
@@ -247,7 +265,7 @@ def sim_vocab_all(lan_list_file):
 
     print("process base lan {}".format(base_lan))
     for lan in lan_lists:
-      train_vocab = open("data/{}_eng/ted-train.mtok.{}.char4vocab".format(lan, lan), "r")
+      train_vocab = open("data_rtok/{}_eng/ted-train.mtok.{}.char4vocab".format(lan, lan), "r")
       total_sim, count = 0, 0
       for line in train_vocab:
         count += 1
@@ -277,7 +295,7 @@ def sim_sw_vocab_all(lan_list_file):
       for line in myfile:
         base_vocab_set.add(line.strip())
         count += 1
-        if count == 10000: break 
+        if count == 1000: break 
 
     print("process base lan {}".format(base_lan))
     for lan in lan_lists:
@@ -287,7 +305,7 @@ def sim_sw_vocab_all(lan_list_file):
         count += 1
         word = line.strip()
         if word in base_vocab_set: total_sim += 1
-        if count == 10000: break
+        if count == 1000: break
       out.write("{} {} {}\n".format(base_lan, lan, total_sim))
       print("process ref lan {}".format(lan))
 

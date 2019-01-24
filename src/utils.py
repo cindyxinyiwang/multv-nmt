@@ -244,7 +244,8 @@ def get_grad_cos_all(model, data, crit):
         cosine = (p0_unit * p1_unit).sum()
 
         #if "enc" in k or "decoder.attention" in k:
-        dist = dist + cosine.item()
+        if "encoder.word_emb" in k:
+          dist = dist + cosine.item()
         if data_count == data.ave_grad:
           print("{} : {}".format(k, cosine))
       dists[data_idx] += dist
