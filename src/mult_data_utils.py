@@ -53,12 +53,20 @@ class MultDataUtil(object):
           if self.hparams.sample_load:
             self.sample_prob_list.append(self.hparams.sample_prob_list.replace("LAN", lan))
 
-        if self.hparams.select_data:
+      if self.hparams.select_data:
+        if self.hparams.el:
           for i in range(1,len(self.train_src_file_list)):
             self.train_src_file_list[i] = self.train_src_file_list[i] + "." + self.hparams.sel
             self.train_trg_file_list[i] = self.train_trg_file_list[i] + "." + self.hparams.sel
             print(self.train_src_file_list)
             print(self.train_trg_file_list)
+        else:
+          for i in range(2,len(self.train_src_file_list)):
+            self.train_src_file_list[i] = self.train_src_file_list[i] + "." + self.hparams.sel
+            self.train_trg_file_list[i] = self.train_trg_file_list[i] + "." + self.hparams.sel
+            print(self.train_src_file_list)
+            print(self.train_trg_file_list)
+
       self.hparams.lan_size = len(self.train_src_file_list)
     if self.hparams.semb_num > 1:
       self.src_i2w_list, self.src_w2i_list = [], []
