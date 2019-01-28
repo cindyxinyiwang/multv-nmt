@@ -9,7 +9,7 @@ import gc
 import os
 import sys
 import time
-
+import subprocess
 import numpy as np
 
 from data_utils import DataUtil
@@ -108,6 +108,10 @@ if not hasattr(train_hparams, "compute_ngram"):
   model.hparams.compute_ngram = False
 if not hasattr(train_hparams, 'copy_mono'):
   hparams.copy_mono = False
+if hasattr(train_hparams, 'detok') and train_hparams.detok:
+  hparams.detok = train_hparams.detok
+else:
+  hparams.detok = False
 
 model.hparams.cuda = hparams.cuda
 data = MultDataUtil(hparams=hparams)
@@ -132,6 +136,7 @@ num_sentences = 0
 
 with torch.no_grad():
   out_file = open(hparams.out_file_list[0], 'w', encoding='utf-8')
+
   test_idx = 0
   for x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, y_char, eop, eof, test_file_idx, x_rank in data.next_test(test_batch_size=1):
     gc.collect()
@@ -155,6 +160,10 @@ with torch.no_grad():
     if eof:
       out_file.close()
       print("finished translating {}".format(hparams.out_file_list[test_idx]))
+      if hparams.detok:
+        _ = subprocess.getoutput(
+        "python src/reversible_tokenize.py --detok < {0} > {1}".format( hparams.out_file_list[test_idx], hparams.out_file_list[test_idx] + ".detok"))
+
       test_idx += 1
       if not eop:
         out_file = open(hparams.out_file_list[test_idx], "w", encoding="utf-8")
