@@ -84,6 +84,10 @@ hparams.merge_bpe=args.merge_bpe
 hparams.out_file_list=out_file_list
 hparams.nbest=args.nbest
 hparams.decode=True
+if not hasattr(train_hparams, "semb_num"):
+  model.hparams.semb_num = 1
+if not hasattr(train_hparams, "compute_ngram"):
+  model.hparams.compute_ngram = False
 
 if hasattr(train_hparams, 'char_temp'):
   model.hparams.char_temp = train_hparams.char_temp
@@ -101,6 +105,8 @@ if not hasattr(train_hparams, 'bpe_ngram'):
   hparams.bpe_ngram = False 
 if not hasattr(train_hparams, 'uni'):
   hparams.uni = False 
+if not hasattr(train_hparams, 'copy_mono'):
+  hparams.copy_mono = False 
 
 if not hasattr(train_hparams, "semb_num"):
   model.hparams.semb_num = 1
