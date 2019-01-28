@@ -556,11 +556,16 @@ def train():
       cur_tr_loss = cur_tr_loss * weight
       if step  % args.log_every == 0:
         print("baseline: {}, weight: {}".format(baseline_loss, weight))
+    
+    cur_tr_loss.div_(batch_size * hparams.update_batch)
+    cur_tr_loss.backward()
+    grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad)
+
     if tr_loss is None:
       tr_loss = cur_tr_loss
     else:
       tr_loss = tr_loss + cur_tr_loss
-    update_batch_size += batch_size
+    #update_batch_size += batch_size
     if dev_zero:
       dev_zero = False
       #based_on_bleu = args.eval_bleu and best_val_ppl <= args.ppl_thresh
@@ -618,9 +623,6 @@ def train():
         total_norm = total_norm ** 0.5
         tr_loss = tr_loss + total_norm
        
-      tr_loss.div_(update_batch_size)
-      tr_loss.backward()
-      grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad)
       #grad_norm = grad_clip(trainable_params, grad_bound=args.clip_grad)
       if np.isnan(grad_norm):
           print("WARNING: gradient is nan!, skipping batch")
