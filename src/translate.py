@@ -108,6 +108,8 @@ if not hasattr(train_hparams, "compute_ngram"):
   model.hparams.compute_ngram = False
 if not hasattr(train_hparams, 'copy_mono'):
   hparams.copy_mono = False
+if not hasattr(train_hparams, 'el'):
+  hparams.el = False
 
 model.hparams.cuda = hparams.cuda
 data = MultDataUtil(hparams=hparams)
