@@ -12,7 +12,7 @@ from mult_data_utils import MultDataUtil
 from select_sent import get_lan_order
 
 vocab_size = 8000
-base_lan = "aze"
+base_lan = "slk"
 #lan_lists = ["ukr", "rus", "bul", "mkd", "kaz", "mon"]
 #lan_lists = ["aze", "tur", "rus", "por", "ces"]
 #lan_lists = ["tur", "ind", "msa", "epo", "sqi", "swe", "dan"]
@@ -22,12 +22,12 @@ cuda = True
 
 def prob_by_rank():
   trg2srcs = {}
-  t = 10
+  t = 1
   k = 58
   # exclude low resource lan
   #el = True
   el = False
-  lan_order, _ = get_lan_order(base_lan, lan_dist_file="ted-train-vocab.mtok.sim-ngram.graph")
+  lan_order, _ = get_lan_order(base_lan, lan_dist_file="ted-train-vocab.rtok.sim-ngram.graph")
   #lan_order = lan_order[-k:-1]
   if el: 
     lan_order = lan_order[-k:]
@@ -52,7 +52,7 @@ def prob_by_rank():
   sim_rank = [i/t for i in sim_rank]
   out_probs = []
   for i, lan in enumerate(lan_lists):
-    trg_file = "data/{}_eng/ted-train.mtok.spm8000.eng".format(lan)
+    trg_file = "data_rtok/{}_eng/ted-train.mtok.spm8000.eng".format(lan)
     trg_sents = open(trg_file, 'r').readlines()
     out_probs.append([0 for _ in range(len(trg_sents))])
     line = 0
@@ -72,17 +72,17 @@ def prob_by_rank():
 
   for i, lan in enumerate(lan_lists):
     if el:
-      out = open("data/{}_eng/ted-train.mtok.{}.prob-rank-{}-t{}-k{}-el".format(lan, lan, base_lan, t, k), "w")
+      out = open("data_rtok/{}_eng/ted-train.mtok.{}.prob-rank-{}-t{}-k{}-el".format(lan, lan, base_lan, t, k), "w")
     else:
-      out = open("data/{}_eng/ted-train.mtok.{}.prob-rank-{}-t{}-k{}".format(lan, lan, base_lan, t, k), "w")
+      out = open("data_rtok/{}_eng/ted-train.mtok.{}.prob-rank-{}-t{}-k{}".format(lan, lan, base_lan, t, k), "w")
     for p in out_probs[i]:
       out.write("{}\n".format(p))
     out.close()
   if el:
-    out = open("data/{}_eng/ted-train.mtok.{}.prob-rank-{}-t{}-k{}-el".format(base_lan, base_lan, base_lan, t, k), "w")
+    out = open("data_rtok/{}_eng/ted-train.mtok.{}.prob-rank-{}-t{}-k{}-el".format(base_lan, base_lan, base_lan, t, k), "w")
   else:
-    out = open("data/{}_eng/ted-train.mtok.{}.prob-rank-{}-t{}-k{}".format(base_lan, base_lan, base_lan, t, k), "w")
-  base_lines = len(open( "data/{}_eng/ted-train.mtok.spm8000.eng".format(base_lan)).readlines())
+    out = open("data_rtok/{}_eng/ted-train.mtok.{}.prob-rank-{}-t{}-k{}".format(base_lan, base_lan, base_lan, t, k), "w")
+  base_lines = len(open( "data_rtok/{}_eng/ted-train.mtok.spm8000.eng".format(base_lan)).readlines())
   for i in range(base_lines):
     out.write("{}\n".format(1))
   out.close()
