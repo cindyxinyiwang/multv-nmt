@@ -66,6 +66,13 @@ class MultDataUtil(object):
             self.train_trg_file_list[i] = self.train_trg_file_list[i] + "." + self.hparams.sel
             print(self.train_src_file_list)
             print(self.train_trg_file_list)
+      if self.hparams.mono:
+        self.train_src_file_list[0] = self.train_src_file_list[0] + ".mono"
+        self.train_trg_file_list[0] = self.train_trg_file_list[0] + ".mono"
+        if self.hparams.src_vocab_list:
+          self.src_vocab_list[0] = self.src_vocab_list[0].replace(".vocab", ".mono.vocab")
+        if self.hparams.src_char_vocab_from:
+          self.src_char_vocab_from[0] = self.src_char_vocab_from[0].replace(".vocab", ".mono.vocab")
 
       self.hparams.lan_size = len(self.train_src_file_list)
     if self.hparams.semb_num > 1:
@@ -686,6 +693,7 @@ class MultDataUtil(object):
       for i, idx in enumerate(sorted_idx[:self.hparams.topk]):
         out_probs_all[idx+1] = out_probs[i]
       self.sample_probs = out_probs_all
+      pass
     else:
       self.sample_probs = out_probs
       self.topk_train_queue = lan_lists

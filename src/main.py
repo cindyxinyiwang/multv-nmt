@@ -191,6 +191,8 @@ parser.add_argument("--compute_ngram", action="store_true", help="max layer to s
 parser.add_argument("--topk", type=int, default=10, help="top k languages to train")
 parser.add_argument("--el", action="store_true", help="max layer to sep loc")
 parser.add_argument("--detok", action="store_true", help="max layer to sep loc")
+parser.add_argument("--mono", action="store_true", help="max layer to sep loc")
+
 args = parser.parse_args()
 
 if args.bpe_ngram: args.n = None
@@ -423,6 +425,7 @@ def train():
       topk=args.topk,
       el=args.el,
       detok=args.detok,
+      mono=args.mono,
     )
   # build or load model
   print("-" * 80)

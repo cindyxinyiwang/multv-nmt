@@ -197,7 +197,7 @@ def get_grad_cos_all(model, data, crit):
   step = 0 
   grads = []
   dists = [100 for _ in range(model.hparams.lan_size)]
-  data_count = 0
+  data_count, num_comp = 0, 0
   for (x_train, x_mask, x_count, x_len, x_pos_emb_idxs, y_train, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_train_char_sparse, y_train_char_sparse, eop, eof, file_idx, x_rank) in data.next_train_select_all():
     #assert file_idx[0] == (i // 2) % model.hparams.lan_size
     i += 1
@@ -230,6 +230,7 @@ def get_grad_cos_all(model, data, crit):
         params[d].grad.data.zero_()
       d += 1
     grads.append(grad)
+    num_comp = len(grads[0].keys())
     if file_idx[0] != 0:
       data_count += 1
       data_idx = file_idx[0]
@@ -244,8 +245,8 @@ def get_grad_cos_all(model, data, crit):
         cosine = (p0_unit * p1_unit).sum()
 
         #if "enc" in k or "decoder.attention" in k:
-        if "encoder.word_emb" in k:
-          dist = dist + cosine.item()
+        #if "encoder.word_emb" in k:
+        dist = dist + cosine.item()
         if data_count == data.ave_grad:
           print("{} : {}".format(k, cosine))
       dists[data_idx] += dist
@@ -254,7 +255,7 @@ def get_grad_cos_all(model, data, crit):
         break
       if data_count == data.ave_grad: data_count = 0
 
-  dists = [d / data_count for d in dists]
+  dists = [d / (data_count * num_comp) for d in dists]
   for j in range(1, model.hparams.lan_size):
     print(data.lans[j])
     print(dists[j])
