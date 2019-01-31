@@ -548,6 +548,10 @@ def train():
     labels = y_train[:,1:].contiguous().view(-1)
       
     cur_tr_loss, cur_tr_acc = get_performance(crit, logits, labels, hparams)
+    cur_tr_loss.div_(batch_size * hparams.update_batch)
+    cur_tr_loss.backward()
+    grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad)
+
     total_loss += cur_tr_loss.item()
     total_corrects += cur_tr_acc.item()
     if file_idx[0] == args.prob_rate_idx-1:
@@ -560,14 +564,10 @@ def train():
       if step  % args.log_every == 0:
         print("baseline: {}, weight: {}".format(baseline_loss, weight))
     
-    cur_tr_loss.div_(batch_size * hparams.update_batch)
-    cur_tr_loss.backward()
-    grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad)
-
     if tr_loss is None:
-      tr_loss = cur_tr_loss
+      tr_loss = cur_tr_loss.item()
     else:
-      tr_loss = tr_loss + cur_tr_loss
+      tr_loss = tr_loss + cur_tr_loss.item()
     #update_batch_size += batch_size
     if dev_zero:
       dev_zero = False
