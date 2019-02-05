@@ -7,7 +7,7 @@
 #export PYTHONPATH="$(pwd)"
 #export CUDA_VISIBLE_DEVICES="2"
 
-python src/translate.py \
+python3.6 src/translate.py \
   --model_dir="outputs_VERSION/NAME/" \
   --data_path data/ILRL_eng/ \
   --test_src_file data/IL_eng/ted-test.mtok.spmVSIZE.IL \
