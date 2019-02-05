@@ -47,7 +47,7 @@ for i in ${!ILS[*]}; do
   #for f in $TEMP_DIR/sw-8000-sam $TEMP_DIR/sw-8000-sel $TEMP_DIR/sw-8000-all ; do
   #for f in $TEMP_DIR/sw-8000-sam $TEMP_DIR/sw-8000-sel; do
   #for f in $TEMP_DIR/semb-8000-sam $TEMP_DIR/semb-8000-sel ; do
-  for f in $TEMP_DIR/sw-8000-lm-am $TEMP_DIR/semb-8000-lm-am $TEMP_DIR/semb-8000-lm-t0.1 $TEMP_DIR/sw-8000-lm-t0.1 $TEMP_DIR/sw-8000-lm-t0.05 $TEMP_DIR/semb-8000-lm-t0.05; do
+  for f in $TEMP_DIR/semb-8000-lm-am $TEMP_DIR/semb-8000-lm-t0.1 $TEMP_DIR/semb-8000-lm-t0.05 $TEMP_DIR/sw-8000-lm-am $TEMP_DIR/sw-8000-lm-t0.1 $TEMP_DIR/sw-8000-lm-t0.05 ; do
   #for f in $TEMP_DIR/semb-8000-sam-t2 $TEMP_DIR/semb-8000-sam-t10; do
     sed "s/VERSION/$VERSION/g; s/SEED/$SEED/g; s/IL/$IL/g; s/RL/$RL/g" < $f > ${f/"$TEMP"/"$CFG_DIR"/}_$IL.sh 
     chmod u+x ${f/"$TEMP"/"$CFG_DIR"/}_$IL.sh 

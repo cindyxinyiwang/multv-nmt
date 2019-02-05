@@ -701,7 +701,6 @@ class MultDataUtil(object):
       for i, idx in enumerate(sorted_idx[:self.hparams.topk]):
         out_probs_all[idx+1] = out_probs[i]
       self.sample_probs = out_probs_all
-      pass
     else:
       self.sample_probs = out_probs
       self.topk_train_queue = lan_lists

@@ -12,9 +12,10 @@
 set -e
 export PYTHONPATH="$(pwd)"                                                       
 export CUDA_VISIBLE_DEVICES="0" 
-version=s1
+
+version=exp6
 mkdir -p outputs_"$version"
-for f in `ls scripts/cfg_"$version"/*_trans.sh`; do
+for f in `ls scripts/"$version"/*_trans.sh`; do
   f1=`basename $f .sh`
   if [[ ! -e outputs_"$version"/$f1.started ]]; then
     echo "running $f1"
