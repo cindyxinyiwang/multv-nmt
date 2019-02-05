@@ -377,34 +377,38 @@ class MultDataUtil(object):
               #lines += 1
               #count = lines * (max_src_count + max_trg_count)
               if end_index >= len(x_len):
-                if self.hparams.update_batch > 1:
-                  interv = (end_index - start_index) // self.hparams.update_batch
-                  start_indices_list = [start_index + i * interv for i in range(self.hparams.update_batch)]
-                  for i in range(self.hparams.update_batch-1):
-                    if start_indices_list[i] < start_indices_list[i+1]-1:
-                      start_indices.append(start_indices_list[i]) 
-                      end_indices.append(start_indices_list[i+1]-1) 
-                  if start_indices_list[-1] < end_index:
-                    start_indices.append(start_indices_list[-1]) 
-                    end_indices.append(end_index) 
-                else: 
-                  start_indices.append(start_index)
-                  end_indices.append(end_index)
+                #if self.hparams.update_batch > 1:
+                #  interv = (end_index - start_index) // self.hparams.update_batch
+                #  start_indices_list = [start_index + i * interv for i in range(self.hparams.update_batch)]
+                #  for i in range(self.hparams.update_batch-1):
+                #    if start_indices_list[i] < start_indices_list[i+1]-1:
+                #      start_indices.append(start_indices_list[i]) 
+                #      end_indices.append(start_indices_list[i+1]-1) 
+                #  if start_indices_list[-1] < end_index:
+                #    start_indices.append(start_indices_list[-1]) 
+                #    end_indices.append(end_index) 
+                #else: 
+                #  start_indices.append(start_index)
+                #  end_indices.append(end_index)
+                start_indices.append(start_index)
+                end_indices.append(end_index)
                 break
               if count > self.hparams.batch_size:
-                if self.hparams.update_batch > 1:
-                  interv = (end_index - start_index) // self.hparams.update_batch
-                  start_indices_list = [start_index + i * interv for i in range(self.hparams.update_batch)]
-                  for i in range(self.hparams.update_batch-1):
-                    if start_indices_list[i] < start_indices_list[i+1]-1:
-                      start_indices.append(start_indices_list[i]) 
-                      end_indices.append(start_indices_list[i+1]-1) 
-                  if start_indices_list[-1] < end_index:
-                    start_indices.append(start_indices_list[-1]) 
-                    end_indices.append(end_index)
-                else: 
-                  start_indices.append(start_index)
-                  end_indices.append(end_index)
+                #if self.hparams.update_batch > 1:
+                #  interv = (end_index - start_index) // self.hparams.update_batch
+                #  start_indices_list = [start_index + i * interv for i in range(self.hparams.update_batch)]
+                #  for i in range(self.hparams.update_batch-1):
+                #    if start_indices_list[i] < start_indices_list[i+1]-1:
+                #      start_indices.append(start_indices_list[i]) 
+                #      end_indices.append(start_indices_list[i+1]-1) 
+                #  if start_indices_list[-1] < end_index:
+                #    start_indices.append(start_indices_list[-1]) 
+                #    end_indices.append(end_index)
+                #else: 
+                #  start_indices.append(start_index)
+                #  end_indices.append(end_index)
+                start_indices.append(start_index)
+                end_indices.append(end_index)
                 count = 0
                 start_index = end_index
                 #lines, max_src_count, max_trg_count = 0, 0, 0
@@ -731,7 +735,7 @@ class MultDataUtil(object):
       if is_train and not src_tokens or not trg_tokens: 
         skip_line_count += 1
         continue
-      if is_train and not self.hparams.decode and self.hparams.max_len and len(src_tokens) > self.hparams.max_len and len(trg_tokens) > self.hparams.max_len:
+      if is_train and not self.hparams.decode and self.hparams.max_len and (len(src_tokens) > self.hparams.max_len or len(trg_tokens) > self.hparams.max_len):
         skip_line_count += 1
         continue
       if is_train and not self.hparams.decode and self.hparams.sample_load and not not_sample:
