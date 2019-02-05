@@ -12,7 +12,7 @@ from mult_data_utils import MultDataUtil
 from select_sent import get_lan_order
 
 vocab_size = 8000
-base_lan = "aze"
+base_lan = "bel"
 #lan_lists = ["ukr", "rus", "bul", "mkd", "kaz", "mon"]
 #lan_lists = ["aze", "tur", "rus", "por", "ces"]
 #lan_lists = ["tur", "ind", "msa", "epo", "sqi", "swe", "dan"]
@@ -21,6 +21,109 @@ base_lan = "aze"
 cuda = True
 
 data_dir = "/projects/tir3/users/xinyiw1/data_iwslt/" 
+
+def sent_vocab_overlap():
+  base_lans = ["aze", "bel", "glg", "slk"]
+  for base_lan in base_lans:
+    base_lan_vocab_file = "data/{}_eng/ted-train.mtok.{}.char4vocab".format(base_lan, base_lan)
+    base_lan_vocab = []
+    with open(base_lan_vocab_file, 'r') as myfile:
+      for line in myfile: base_lan_vocab.append(line.strip())
+    base_lan_vocab = set(base_lan_vocab)
+
+    lan_lists = [l.strip() for l in open("langs.txt", 'r').readlines()]
+    lans = []
+    for l in lan_lists:
+      if l != base_lan: lans.append(l)
+    lan_lists = lans
+
+    for lan in lan_lists:
+      lan_file = "data/{}_eng/ted-train.mtok.{}".format(lan, lan)
+      out_file = "lmll/ted-train.mtok.{}.{}-vocab".format(lan, base_lan)
+      out_file = open(out_file, 'w')
+      with open(lan_file, 'r') as myfile:
+        for line in myfile:
+          words = line.split()
+          total_count, match_count = 0, 0
+          for w in words:
+            for i in range(len(w)):
+              for j in range(i+1, min(i+4, len(w))+1):
+                char = w[i:j]
+                total_count += 1
+                if char in base_lan_vocab: match_count += 1
+          out_file.write("{}\n".format(match_count / total_count))
+         
+def prob_by_vocab_overlap_sent():
+  base_lans = ["aze", "bel", "glg", "slk"]
+  ts = [0.01, 0.05, 0.1, 0.1]
+  argmaxs = [False, False, False, True]
+  for base_lan in base_lans:
+    for t, argmax in zip(ts, argmaxs):
+      trg2srcs = {}
+      lan_lists = [l.strip() for l in open("langs.txt", 'r').readlines()]
+      lans = []
+      for l in lan_lists:
+        if l != base_lan: lans.append(l)
+      lan_lists = lans
+
+      out_probs = []
+      for i, lan in enumerate(lan_lists):
+        lm_file = "lmll/ted-train.mtok.{}.{}-vocab".format(lan, base_lan)
+        lm_score = [float(l) for l in open(lm_file, 'r').readlines()]
+
+        trg_file = "data/{}_eng/ted-train.mtok.spm8000.eng".format(lan)
+        trg_sents = open(trg_file, 'r').readlines()
+        out_probs.append([0 for _ in range(len(trg_sents))])
+        line = 0
+        for j, trg in enumerate(trg_sents):
+          if trg not in trg2srcs: trg2srcs[trg] = []
+          trg2srcs[trg].append([i, line, lm_score[j]])
+          line += 1
+      print("eng size: {}".format(len(trg2srcs)))
+      for trg, src_list in trg2srcs.items():
+        if argmax:
+          max_score = 100000
+          for s in src_list:
+            max_score = min(s[2], max_score)
+          for s in src_list:
+            if s[2] == max_score:
+              out_probs[s[0]][s[1]] = 1
+            else:
+              out_probs[s[0]][s[1]] = 0
+        else:
+          sum_score = 0
+          log_score = []
+          for s in src_list:
+            #s[2] = np.exp(-s[2] / t)
+            #sum_score += s[2]
+            s[2] = s[2] / t
+            log_score.append(s[2])
+          sum_score = logsumexp(log_score)
+          for s in src_list:
+            #s[2] = s[2] / sum_score
+            s[2] = np.exp(s[2] - sum_score)
+            out_probs[s[0]][s[1]] = s[2]
+
+      for i, lan in enumerate(lan_lists):
+        if argmax:
+          out = open("data/{}_eng/ted-train.mtok.{}.prob-vocab-sent-{}-am".format(lan, lan, base_lan), "w")
+        else:
+          out = open("data/{}_eng/ted-train.mtok.{}.prob-vocab-sent-{}-t{}".format(lan, lan, base_lan, t), "w")
+        #out = open(data_dir + "{}_en/ted-train.mtok.{}.prob-rank-{}-t{}-k{}-el".format(lan, lan, base_lan, t, k), "w")
+        for p in out_probs[i]:
+          out.write("{}\n".format(p))
+        out.close()
+      if argmax:
+        out = open("data/{}_eng/ted-train.mtok.{}.prob-vocab-sent-{}-am".format(base_lan, base_lan, base_lan), "w")
+      else:
+        out = open("data/{}_eng/ted-train.mtok.{}.prob-vocab-sent-{}-t{}".format(base_lan, base_lan, base_lan, t), "w")
+      #out = open(data_dir + "{}_en/ted-train.mtok.{}.prob-rank-{}-t{}-k{}".format(base_lan, base_lan, base_lan, t, k), "w")
+      base_lines = len(open("data/{}_eng/ted-train.mtok.spm8000.eng".format(base_lan)).readlines())
+      #base_lines = len(open(data_dir + "{}_en/ted-train.mtok.spm8000.en".format(base_lan)).readlines())
+      for i in range(base_lines):
+        out.write("{}\n".format(1))
+      out.close()
+
 
 def prob_by_rank():
   trg2srcs = {}
@@ -89,9 +192,6 @@ def prob_by_rank():
     else:
       out = open("data/{}_eng/ted-train.mtok.{}.prob-rank-{}-t{}-k{}".format(lan, lan, base_lan, t, k), "w")
       #out = open(data_dir + "{}_en/ted-train.mtok.{}.prob-rank-{}-t{}-k{}-el".format(lan, lan, base_lan, t, k), "w")
-    else:
-      out = open("data/{}_eng/ted-train.mtok.{}.prob-rank-{}-t{}-k{}".format(lan, lan, base_lan, t, k), "w")
-      #out = open(data_dir + "{}_en/ted-train.mtok.{}.prob-rank-{}-t{}-k{}".format(lan, lan, base_lan, t, k), "w")
     for p in out_probs[i]:
       out.write("{}\n".format(p))
     out.close()
@@ -99,16 +199,76 @@ def prob_by_rank():
     out = open("data/{}_eng/ted-train.mtok.{}.prob-rank-{}-t{}-k{}-el".format(base_lan, base_lan, base_lan, t, k), "w")
   else:
     out = open("data/{}_eng/ted-train.mtok.{}.prob-rank-{}-t{}-k{}".format(base_lan, base_lan, base_lan, t, k), "w")
-  base_lines = len(open( "data/{}_eng/ted-train.mtok.spm8000.eng".format(base_lan)).readlines())
-    #out = open(data_dir + "{}_en/ted-train.mtok.{}.prob-rank-{}-t{}-k{}-el".format(base_lan, base_lan, base_lan, t, k), "w")
-  else:
-    out = open("data/{}_eng/ted-train.mtok.{}.prob-rank-{}-t{}-k{}".format(base_lan, base_lan, base_lan, t, k), "w")
-    #out = open(data_dir + "{}_en/ted-train.mtok.{}.prob-rank-{}-t{}-k{}".format(base_lan, base_lan, base_lan, t, k), "w")
   base_lines = len(open("data/{}_eng/ted-train.mtok.spm8000.eng".format(base_lan)).readlines())
   #base_lines = len(open(data_dir + "{}_en/ted-train.mtok.spm8000.en".format(base_lan)).readlines())
   for i in range(base_lines):
     out.write("{}\n".format(1))
   out.close()
+
+def prob_by_lm():
+  trg2srcs = {}
+  t = 0.5
+  lan_lists = [l.strip() for l in open("langs.txt", 'r').readlines()]
+  
+  lans = []
+  for l in lan_lists:
+    if l != base_lan: lans.append(l)
+  lan_lists = lans
+
+  argmax = False
+  out_probs = []
+  for i, lan in enumerate(lan_lists):
+    lm_file = "data/{}_eng/ted-train.mtok.{}.{}-lmll".format(lan, lan, base_lan)
+    lm_score = [float(l) for l in open(lm_file, 'r').readlines()]
+
+    trg_file = "data/{}_eng/ted-train.mtok.spm8000.eng".format(lan)
+    trg_sents = open(trg_file, 'r').readlines()
+    out_probs.append([0 for _ in range(len(trg_sents))])
+    line = 0
+    for j, trg in enumerate(trg_sents):
+      if trg not in trg2srcs: trg2srcs[trg] = []
+      trg2srcs[trg].append([i, line, lm_score[j]])
+      line += 1
+  print("eng size: {}".format(len(trg2srcs)))
+  for trg, src_list in trg2srcs.items():
+    if argmax:
+      max_score = 100000
+      for s in src_list:
+        max_score = min(s[2], max_score)
+      for s in src_list:
+        if s[2] == max_score:
+          out_probs[s[0]][s[1]] = 1
+        else:
+          out_probs[s[0]][s[1]] = 0
+    else:
+      sum_score = 0
+      for s in src_list:
+        s[2] = np.exp(-s[2] / t)
+        sum_score += s[2]
+      for s in src_list:
+        s[2] = s[2] / sum_score
+        out_probs[s[0]][s[1]] = s[2]
+
+  for i, lan in enumerate(lan_lists):
+    if argmax:
+      out = open("data/{}_eng/ted-train.mtok.{}.prob-lm-{}-am".format(lan, lan, base_lan), "w")
+    else:
+      out = open("data/{}_eng/ted-train.mtok.{}.prob-lm-{}-t{}".format(lan, lan, base_lan, t), "w")
+    #out = open(data_dir + "{}_en/ted-train.mtok.{}.prob-rank-{}-t{}-k{}-el".format(lan, lan, base_lan, t, k), "w")
+    for p in out_probs[i]:
+      out.write("{}\n".format(p))
+    out.close()
+  if argmax:
+    out = open("data/{}_eng/ted-train.mtok.{}.prob-lm-{}-am".format(base_lan, base_lan, base_lan), "w")
+  else:
+    out = open("data/{}_eng/ted-train.mtok.{}.prob-lm-{}-t{}".format(base_lan, base_lan, base_lan, t), "w")
+  #out = open(data_dir + "{}_en/ted-train.mtok.{}.prob-rank-{}-t{}-k{}".format(base_lan, base_lan, base_lan, t, k), "w")
+  base_lines = len(open("data/{}_eng/ted-train.mtok.spm8000.eng".format(base_lan)).readlines())
+  #base_lines = len(open(data_dir + "{}_en/ted-train.mtok.spm8000.en".format(base_lan)).readlines())
+  for i in range(base_lines):
+    out.write("{}\n".format(1))
+  out.close()
+
 
 def prob_by_classify():
   trg2srcs = {}
@@ -337,7 +497,8 @@ def sim_sw_vocab_all(lan_list_file):
 
 
 if __name__ == "__main__":
-  prob_by_rank()
+  sent_vocab_overlap()
+  #prob_by_rank()
   #sim_sw_vocab_all("langs.txt")
   #sim_vocab_all("iwslt_langs.txt")
   #sim_gram_all("langs.txt")

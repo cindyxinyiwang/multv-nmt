@@ -11,24 +11,20 @@
 #The default is that the job will not be requeued.
 set -e
 export PYTHONPATH="$(pwd)"                                                       
-export CUDA_VISIBLE_DEVICES="0" 
-#source activate py36
-#mkdir -p outs
-version=exp6
-for f in scripts/"$version"/*_trans.sh; do
-  f1=`basename $f _trans.sh`
-  echo "$f1 "
-  if [[ ! -e outputs_"$version"/"$f1"/ted-test-b5m1 ]]; then
-    if [[ ! -e outputs_"$version"/"$f1"/model.pt ]]; then
-      echo "$f1 no model file"
-      continue
-    fi
-    echo "running $f"
+export CUDA_VISIBLE_DEVICES="3" 
+version=s1
+mkdir -p outputs_"$version"
+for f in `ls scripts/cfg_"$version"/*_trans.sh`; do
+  f1=`basename $f .sh`
+  if [[ ! -e outputs_"$version"/$f1.started ]]; then
+    echo "running $f1"
+    touch outputs_"$version"/$f1.started
     hostname
     nvidia-smi
     chmod u+x $f
     ./$f
   else
-    echo "already started $f"
+    echo "already started $f1"
   fi
 done
+
