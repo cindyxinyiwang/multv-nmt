@@ -302,7 +302,10 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
 def train():
   if args.load_model and (not args.reset_hparams):
     print("load hparams..")
-    hparams_file_name = os.path.join(args.output_dir, "hparams.pt")
+    if len(args.dev_src_file_list.split(",")) > 1:
+      hparams_file_name = os.path.join(args.output_dir, "dev0/hparams.pt")
+    else:
+      hparams_file_name = os.path.join(args.output_dir, "hparams.pt")
     hparams = torch.load(hparams_file_name)
     hparams.load_model = args.load_model
     hparams.n_train_steps = args.n_train_steps
@@ -432,7 +435,10 @@ def train():
   print("Creating model")
   if args.load_model:
     data = MultDataUtil(hparams=hparams)
-    model_file_name = os.path.join(args.output_dir, "model.pt")
+    if len(hparams.dev_src_file_list) > 1:
+      model_file_name = os.path.join(args.output_dir, "dev0/model.pt")
+    else:
+      model_file_name = os.path.join(args.output_dir, "model.pt")
     print("Loading model from '{0}'".format(model_file_name))
     model = torch.load(model_file_name)
     if not hasattr(model, 'data'):
@@ -440,7 +446,10 @@ def train():
     if not hasattr(model.hparams, 'transformer_wdrop'):
       model.hparams.transformer_wdrop = False
 
-    optim_file_name = os.path.join(args.output_dir, "optimizer.pt")
+    if len(hparams.dev_src_file_list) > 1:
+      optim_file_name = os.path.join(args.output_dir, "dev0/optimizer.pt")
+    else:
+      optim_file_name = os.path.join(args.output_dir, "optimizer.pt")
     print("Loading optimizer from {}".format(optim_file_name))
     trainable_params = [
       p for p in model.parameters() if p.requires_grad]
@@ -449,7 +458,10 @@ def train():
     optimizer_state = torch.load(optim_file_name)
     optim.load_state_dict(optimizer_state)
 
-    extra_file_name = os.path.join(args.output_dir, "extra.pt")
+    if len(hparams.dev_src_file_list) > 1:
+      extra_file_name = os.path.join(args.output_dir, "dev0/extra.pt")
+    else:
+      extra_file_name = os.path.join(args.output_dir, "extra.pt")
     step, best_val_ppl, best_val_bleu, cur_attempt, lr = torch.load(extra_file_name)
   else:
     if args.pretrained_model:
@@ -747,9 +759,9 @@ def main():
     for i in range(len(dev_src_file_list)):
       if not os.path.isdir(args.output_dir + "dev{}".format(i)):
         os.makedirs(args.output_dir + "dev{}".format(i))
-      else:
-        shutil.rmtree(args.output_dir + "dev{}".format(i))
-        os.makedirs(args.output_dir + "dev{}".format(i))
+      #else:
+      #  shutil.rmtree(args.output_dir + "dev{}".format(i))
+      #  os.makedirs(args.output_dir + "dev{}".format(i))
   print("-" * 80)
   log_file = os.path.join(args.output_dir, "stdout")
   print("Logging to {}".format(log_file))
