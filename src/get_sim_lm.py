@@ -1,10 +1,6 @@
 import argparse
 import pickle as pkl
-
-from model import *
-from transformer import *
-from utils import *
-
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
@@ -24,15 +20,15 @@ data_dir = "/projects/tir3/users/xinyiw1/data_iwslt/"
 
 def prob_by_rank():
   trg2srcs = {}
-  t = 1
+  t = 10
   k = 58
   #k = 10
   #k = 29
   #out_lans = "lang_azeall_k29.txt"
   out_lans = ""
   # exclude low resource lan
-  el = True
-  #el = False
+  #el = True
+  el = False
   lan_order, _ = get_lan_order(base_lan, lan_dist_file="ted-train-vocab.mtok.sim-ngram.graph")
   #lan_order, _ = get_lan_order(base_lan, lan_dist_file="ted-iwslt-vocab.mtok.sim-ngram.graph")
   #lan_order = lan_order[-k:-1]
@@ -96,12 +92,75 @@ def prob_by_rank():
     out = open("data/{}_eng/ted-train.mtok.{}.prob-rank-{}-t{}-k{}-el".format(base_lan, base_lan, base_lan, t, k), "w")
   else:
     out = open("data/{}_eng/ted-train.mtok.{}.prob-rank-{}-t{}-k{}".format(base_lan, base_lan, base_lan, t, k), "w")
-    #out = open(data_dir + "{}_en/ted-train.mtok.{}.prob-rank-{}-t{}-k{}-el".format(base_lan, base_lan, base_lan, t, k), "w")
   base_lines = len(open("data/{}_eng/ted-train.mtok.spm8000.eng".format(base_lan)).readlines())
   #base_lines = len(open(data_dir + "{}_en/ted-train.mtok.spm8000.en".format(base_lan)).readlines())
   for i in range(base_lines):
     out.write("{}\n".format(1))
   out.close()
+
+def prob_by_lm():
+  trg2srcs = {}
+  t = 0.05
+  lan_lists = [l.strip() for l in open("langs.txt", 'r').readlines()]
+  lans = []
+  for l in lan_lists:
+    if l != base_lan: lans.append(l)
+  lan_lists = lans
+
+  argmax = False
+  out_probs = []
+  for i, lan in enumerate(lan_lists):
+    lm_file = "lmll/ted-train.mtok.{}.lmll".format(lan, lan)
+    lm_score = [float(l) for l in open(lm_file, 'r').readlines()]
+
+    trg_file = "data/{}_eng/ted-train.mtok.spm8000.eng".format(lan)
+    trg_sents = open(trg_file, 'r').readlines()
+    out_probs.append([0 for _ in range(len(trg_sents))])
+    line = 0
+    for j, trg in enumerate(trg_sents):
+      if trg not in trg2srcs: trg2srcs[trg] = []
+      trg2srcs[trg].append([i, line, lm_score[j]])
+      line += 1
+  print("eng size: {}".format(len(trg2srcs)))
+  for trg, src_list in trg2srcs.items():
+    if argmax:
+      max_score = 100000
+      for s in src_list:
+        max_score = min(s[2], max_score)
+      for s in src_list:
+        if s[2] == max_score:
+          out_probs[s[0]][s[1]] = 1
+        else:
+          out_probs[s[0]][s[1]] = 0
+    else:
+      sum_score = 0
+      for s in src_list:
+        s[2] = np.exp(-s[2] / t)
+        sum_score += s[2]
+      for s in src_list:
+        s[2] = s[2] / sum_score
+        out_probs[s[0]][s[1]] = s[2]
+
+  for i, lan in enumerate(lan_lists):
+    if argmax:
+      out = open("data/{}_eng/ted-train.mtok.{}.prob-lm-{}-am".format(lan, lan, base_lan), "w")
+    else:
+      out = open("data/{}_eng/ted-train.mtok.{}.prob-lm-{}-t{}".format(lan, lan, base_lan, t), "w")
+    #out = open(data_dir + "{}_en/ted-train.mtok.{}.prob-rank-{}-t{}-k{}-el".format(lan, lan, base_lan, t, k), "w")
+    for p in out_probs[i]:
+      out.write("{}\n".format(p))
+    out.close()
+  if argmax:
+    out = open("data/{}_eng/ted-train.mtok.{}.prob-lm-{}-am".format(base_lan, base_lan, base_lan), "w")
+  else:
+    out = open("data/{}_eng/ted-train.mtok.{}.prob-lm-{}-t{}".format(base_lan, base_lan, base_lan, t), "w")
+  #out = open(data_dir + "{}_en/ted-train.mtok.{}.prob-rank-{}-t{}-k{}".format(base_lan, base_lan, base_lan, t, k), "w")
+  base_lines = len(open("data/{}_eng/ted-train.mtok.spm8000.eng".format(base_lan)).readlines())
+  #base_lines = len(open(data_dir + "{}_en/ted-train.mtok.spm8000.en".format(base_lan)).readlines())
+  for i in range(base_lines):
+    out.write("{}\n".format(1))
+  out.close()
+
 
 def prob_by_classify():
   trg2srcs = {}
@@ -330,7 +389,8 @@ def sim_sw_vocab_all(lan_list_file):
 
 
 if __name__ == "__main__":
-  prob_by_rank()
+  prob_by_lm()
+  #prob_by_rank()
   #sim_sw_vocab_all("langs.txt")
   #sim_vocab_all("iwslt_langs.txt")
   #sim_gram_all("langs.txt")

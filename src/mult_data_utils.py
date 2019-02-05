@@ -66,7 +66,7 @@ class MultDataUtil(object):
             self.train_trg_file_list[i] = self.train_trg_file_list[i] + "." + self.hparams.sel
             print(self.train_src_file_list)
             print(self.train_trg_file_list)
-      if self.hparams.mono:
+      if hasattr(self.hparams, "mono") and self.hparams.mono:
         self.train_src_file_list[0] = self.train_src_file_list[0] + ".mono"
         self.train_trg_file_list[0] = self.train_trg_file_list[0] + ".mono"
         if self.hparams.src_vocab_list:
@@ -484,9 +484,12 @@ class MultDataUtil(object):
       idxes.append(1)
     if len(self.hparams.dev_src_file_list) == 1:
       idxes = [0]
+   
+    #print(self.hparams.dev_src_file_list)
     while True:
-      #for data_idx in range(len(self.hparams.dev_src_file_list)):
-      for data_idx in idxes:
+      for data_idx in range(len(self.hparams.dev_src_file_list)):
+      #for data_idx in idxes:
+        print(data_idx)
         x_dev, y_dev, x_char_kv, x_dev_len, x_dev_rank = self._build_parallel(self.hparams.dev_src_file_list[data_idx], self.hparams.dev_trg_file_list[data_idx], data_idx, is_train=False, outprint=True)
         first_dev = False
         start_index, end_index = 0, 0
@@ -513,7 +516,8 @@ class MultDataUtil(object):
             eof = True
           else:
             eof = False
-          if data_idx == idxes[-1] and eof:
+          #if data_idx == idxes[-1] and eof:
+          if data_idx == len(self.hparams.dev_src_file_list)-1 and eof:
             eop = True
           else:
             eop = False
@@ -743,7 +747,7 @@ class MultDataUtil(object):
       if is_train and not src_tokens or not trg_tokens: 
         skip_line_count += 1
         continue
-      if is_train and not self.hparams.decode and self.hparams.max_len and (len(src_tokens) > self.hparams.max_len or len(trg_tokens) > self.hparams.max_len):
+      if is_train and (not self.hparams.decode) and self.hparams.max_len and (len(src_tokens) > self.hparams.max_len or len(trg_tokens) > self.hparams.max_len):
         skip_line_count += 1
         continue
       if is_train and not self.hparams.decode and self.hparams.sample_load and not not_sample:

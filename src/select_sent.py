@@ -15,11 +15,11 @@ def get_lan_order(base_lan, lan_dist_file="ted-train-vocab.mtok.sim-ngram.graph"
   return ordered_lans, dists
 
 if __name__ == "__main__":
-  IL = "slk"
-  RL = "ces"
+  IL = "aze"
+  RL = "tur"
  
-  el = False 
-  #el = True 
+  #el = False 
+  el = True 
   langs, _ = get_lan_order(IL)
   langs = [kv[0] for kv in langs[:-1]][::-1]
   tar_vocab = "data/{}_eng/ted-train.mtok.{}.ochar4vocab".format(IL, IL)

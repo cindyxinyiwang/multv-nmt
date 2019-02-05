@@ -207,6 +207,7 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
   valid_acc = 0
   n_batches = 0
   total_ppl, total_bleu = 0, 0
+  ppl_list, bleu_list = [], []
   valid_bleu = None
   for x, x_mask, x_count, x_len, x_pos_emb_idxs, y, y_mask, y_count, y_len, y_pos_emb_idxs, batch_size, x_char, y_char, eop, eof, dev_file_index, x_rank in data.next_dev(dev_batch_size=valid_batch_size):
     # clear GPU memory
@@ -239,6 +240,7 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
       valid_acc = 0
       n_batches = 0
       total_ppl += val_ppl
+      ppl_list.append(val_ppl)
     if eop:
       break
   # BLEU eval
@@ -290,13 +292,14 @@ def eval(model, data, crit, step, hparams, eval_bleu=False,
         print(" val_bleu={0:<.2f}".format(valid_bleu))
         total_bleu += valid_bleu
         dev_idx += 1
+        bleu_list.append(valid_bleu)
         if not eop:
           out_file = open(valid_hyp_file_list[dev_idx], "w", encoding="utf-8")
       if eop:
         break
   model.hparams.decode = False
   model.train()
-  return total_ppl, total_bleu
+  return total_ppl, total_bleu, ppl_list, bleu_list
 
 def train():
   if args.load_model and (not args.reset_hparams):
@@ -508,8 +511,8 @@ def train():
     optim = torch.optim.Adam(trainable_params, lr=hparams.lr, weight_decay=hparams.l2_reg)
     #optim = torch.optim.Adam(trainable_params)
     step = 0
-    best_val_ppl = None
-    best_val_bleu = None
+    best_val_ppl = [None for _ in range(len(model.hparams.dev_src_file_list))]
+    best_val_bleu = [None for _ in range(len(model.hparams.dev_src_file_list))]
     cur_attempt = 0
     lr = hparams.lr
 
@@ -682,36 +685,40 @@ def train():
     else:
       eval_now = False 
     if eval_now:
-      based_on_bleu = args.eval_bleu and best_val_ppl is not None and best_val_ppl <= args.ppl_thresh
+      based_on_bleu = args.eval_bleu and best_val_ppl[0] is not None and best_val_ppl[0] <= args.ppl_thresh
       if args.dev_zero: based_on_bleu = True
       with torch.no_grad():
-        val_ppl, val_bleu = eval(model, data, crit, step, hparams, eval_bleu=based_on_bleu, valid_batch_size=args.valid_batch_size, tr_logits=logits)	
-      if based_on_bleu:
-        if best_val_bleu is None or best_val_bleu <= val_bleu:
-          save = True 
-          best_val_bleu = val_bleu
-          cur_attempt = 0
+        val_ppl, val_bleu, ppl_list, bleu_list = eval(model, data, crit, step, hparams, eval_bleu=based_on_bleu, valid_batch_size=args.valid_batch_size, tr_logits=logits)	
+      for i in range(len(ppl_list)):
+        if based_on_bleu:
+          if best_val_bleu[i] is None or best_val_bleu[i] <= bleu_list[i]:
+            save = True 
+            best_val_bleu[i] = bleu_list[i]
+            cur_attempt = 0
+          else:
+            save = False
+            cur_attempt += 1
         else:
-          save = False
-          cur_attempt += 1
-      else:
-      	if best_val_ppl is None or best_val_ppl >= val_ppl:
-          save = True
-          best_val_ppl = val_ppl
-          cur_attempt = 0 
-      	else:
-          save = False
-          cur_attempt += 1
-      if save or args.always_save:
-        save_checkpoint([step, best_val_ppl, best_val_bleu, cur_attempt, lr], model, optim, hparams, args.output_dir)
-        if args.sp_reg:
-          s0_trainable_params = []
-          for p in model.parameters(): 
-            if p.requires_grad: 
-              s0_trainable_params.append(p.detach().clone())
-      elif not args.lr_schedule and step >= hparams.n_warm_ups:
-        lr = lr * args.lr_dec
-        set_lr(optim, lr)
+       	  if best_val_ppl[i] is None or best_val_ppl[i] >= ppl_list[i]:
+            save = True
+            best_val_ppl[i] = ppl_list[i]
+            cur_attempt = 0 
+          else:
+            save = False
+            cur_attempt += 1
+        if save or args.always_save:
+          if len(ppl_list) > 1:
+            save_checkpoint([step, best_val_ppl, best_val_bleu, cur_attempt, lr], model, optim, hparams, args.output_dir + "dev{}".format(i))
+          else:
+            save_checkpoint([step, best_val_ppl, best_val_bleu, cur_attempt, lr], model, optim, hparams, args.output_dir)
+          if args.sp_reg:
+            s0_trainable_params = []
+            for p in model.parameters(): 
+              if p.requires_grad: 
+                s0_trainable_params.append(p.detach().clone())
+        elif not args.lr_schedule and step >= hparams.n_warm_ups:
+          lr = lr * args.lr_dec
+          set_lr(optim, lr)
       # reset counter after eval
       log_start_time = time.time()
       target_words = total_corrects = total_loss = 0
@@ -729,7 +736,7 @@ def main():
   np.random.seed(args.seed)
   torch.manual_seed(args.seed)
   torch.cuda.manual_seed_all(args.seed)
-
+  dev_src_file_list = args.dev_src_file_list.split(",")
   if not os.path.isdir(args.output_dir):
     print("-" * 80)
     print("Path {} does not exist. Creating.".format(args.output_dir))
@@ -739,7 +746,13 @@ def main():
     print("Path {} exists. Remove and remake.".format(args.output_dir))
     shutil.rmtree(args.output_dir)
     os.makedirs(args.output_dir)
-
+  if len(dev_src_file_list) > 1:
+    for i in range(len(dev_src_file_list)):
+      if not os.path.isdir(args.output_dir + "dev{}".format(i)):
+        os.makedirs(args.output_dir + "dev{}".format(i))
+      else:
+        shutil.rmtree(args.output_dir + "dev{}".format(i))
+        os.makedirs(args.output_dir + "dev{}".format(i))
   print("-" * 80)
   log_file = os.path.join(args.output_dir, "stdout")
   print("Logging to {}".format(log_file))

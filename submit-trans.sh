@@ -9,13 +9,13 @@
 ##SBATCH --requeue
 #Specifies that the job will be requeued after a node failure.
 #The default is that the job will not be requeued.
-set -e
-export PYTHONPATH="$(pwd)"                                                       
-export CUDA_VISIBLE_DEVICES="0" 
+#set -e
+#export PYTHONPATH="$(pwd)"                                                       
+#export CUDA_VISIBLE_DEVICES="0" 
 #source activate py36
 #mkdir -p outs
-version=v7_abl_s1
-for f in scripts/cfg_"$version"/*_trans.sh; do
+version=exp6
+for f in scripts/"$version"/*_trans.sh; do
   f1=`basename $f _trans.sh`
   echo "$f1 "
   if [[ ! -e outputs_"$version"/"$f1"/ted-test-b5m1 ]]; then
