@@ -1,0 +1,40 @@
+#!/bin/bash
+#SBATCH --gres=gpu:1
+#SBATCH --mem=12g
+##SBATCH --nodelist=compute-0-7
+#SBATCH -t 0
+
+#export PYTHONPATH="$(pwd)"
+#export CUDA_VISIBLE_DEVICES="2"
+
+DDIR=DATA_DIR
+python src/main.py \
+  --clean_mem_every 5 \
+  --reset_output_dir \
+  --output_dir="outputs_dds/sw-8000_ILRLSEED/" \
+  --train_src_file_list "$DDIR"data/LAN_eng/ted-train.mtok.spm8000.LAN \
+  --train_trg_file_list  "$DDIR"data_moses/LAN_eng/ted-train.mtok.spm8000.eng \
+  --dev_src_file_list  "$DDIR"data/IL_eng/ted-dev.mtok.spm8000.IL \
+  --dev_trg_file_list  "$DDIR"data_moses/IL_eng/ted-dev.mtok.spm8000.eng \
+  --dev_ref_file_list  "$DDIR"data_moses/IL_eng/ted-dev.mtok.eng \
+  --dev_file_idx_list  "0" \
+  --src_vocab_list  "$DDIR"data/LAN_eng/ted-train.mtok.spm8000.LAN.vocab \
+  --trg_vocab  "$DDIR"data_moses/eng/ted-train.mtok.spm8000.eng.vocab \
+  --lang_file lang_ILRL.txt \
+  --d_word_vec=128 \
+  --d_model=512 \
+  --log_every=50 \
+  --eval_every=2500 \
+  --ppl_thresh=15 \
+  --merge_bpe \
+  --eval_bleu \
+  --batcher='word' \
+  --batch_size 1500 \
+  --valid_batch_size=7 \
+  --lr_dec 1.0 \
+  --lr 0.001 \
+  --n_train_epochs 20 \
+  --dropout 0.3 \
+  --max_len 380 \
+  --cuda \
+  --seed SEED
