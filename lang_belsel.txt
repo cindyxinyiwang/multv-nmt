@@ -1,0 +1,7 @@
+bel
+ukr
+rus
+bul
+mkd
+kaz
+mon

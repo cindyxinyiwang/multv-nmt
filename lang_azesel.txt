@@ -1,0 +1,8 @@
+aze
+tur
+ind
+msa
+epo
+sqi
+swe
+dan
