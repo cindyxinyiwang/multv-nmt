@@ -7,10 +7,11 @@
 #export PYTHONPATH="$(pwd)"
 #export CUDA_VISIBLE_DEVICES="2"
 
+DDIR="/home/hyhieu/xinyiw/ScoreNMT/" 
 python3.6 src/translate.py \
   --model_dir="outputs_VERSION/NAME/" \
-  --test_src_file_list data/IL_eng/ted-test.mtok.spmVSIZE.IL \
-  --test_trg_file_list data/IL_eng/ted-test.mtok.spm8000.eng \
+  --test_src_file_list "$DDIR"data/IL_eng/ted-test.mtok.spmVSIZE.IL \
+  --test_trg_file_list "$DDIR"data/IL_eng/ted-test.mtok.spm8000.eng \
   --test_file_idx_list "0" \
   --cuda \
   --merge_bpe \
